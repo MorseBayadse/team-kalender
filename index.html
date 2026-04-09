@@ -21,7 +21,7 @@
 <div id="screen-auth" class="screen active">
   <div class="auth-card">
     <div class="logo-area">
-      <div class="logo-icon">ðŸ“…</div>
+      <div class="logo-icon">📅</div>
       <div class="logo-name">Kalender App</div>
       <div class="logo-tagline">Gemeinsam organisiert</div>
     </div>
@@ -32,9 +32,178 @@
     <div class="auth-msg" id="authMsg"></div>
     <form class="auth-form active" id="form-login" onsubmit="handleLogin(event)">
       <div class="field"><label>E-Mail</label><input type="email" id="login-email" placeholder="deine@email.de" required /></div>
-      <div class="field"><label>Passwort</label><input type="password" id="login-password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required /></div>
-      <button type="submit" class="btn-primary">Anmelden â†’</button>
-      <div class="auth-divider">Noch kein Konto? Oben auf â€žRegistrieren" klicken.</div>
+      <div class="field"><label>Passwort</label><input type="password" id="login-password" placeholder="••••••••" required /></div>
+      <button type="submit" class="btn-primary">Anmelden →</button>
+      <div class="auth-divider">Noch kein Konto? Oben auf „Registrieren" klicken.</div>
     </form>
     <form class="auth-form" id="form-register" onsubmit="handleRegister(event)">
-    </html>
+      <div class="field-row">
+        <div class="field"><label>Vorname</label><input type="text" id="reg-firstname" placeholder="Max" required /></div>
+        <div class="field"><label>Nachname</label><input type="text" id="reg-lastname" placeholder="Muster" required /></div>
+      </div>
+      <div class="field"><label>E-Mail</label><input type="email" id="reg-email" placeholder="deine@email.de" required /></div>
+      <div class="field"><label>Passwort</label><input type="password" id="reg-password" placeholder="••••••••" required minlength="6" /></div>
+      <div class="field"><label>Passwort bestätigen</label><input type="password" id="reg-password2" placeholder="••••••••" required minlength="6" /></div>
+      <button type="submit" class="btn-primary">Konto erstellen →</button>
+    </form>
+  </div>
+</div>
+
+<div id="screen-home" class="screen">
+  <nav class="navbar">
+    <div class="navbar-left"><div class="navbar-logo">📅</div><span class="navbar-title">Kalender App</span></div>
+    <div class="navbar-right" style="position:relative">
+      <button class="avatar-btn" id="avatarBtn" onclick="toggleDropdown()"><span id="navAvatar"></span></button>
+      <div class="avatar-dropdown" id="avatarDropdown">
+        <div class="dropdown-header"><div class="name" id="dropdownName"></div><div style="font-size:12px;color:var(--text-muted)" id="dropdownEmail"></div></div>
+        <div id="userSwitchSection"></div>
+        <button class="dropdown-item danger" onclick="handleLogout()">🚪 Abmelden</button>
+      </div>
+    </div>
+  </nav>
+  <div class="home-content">
+    <div id="invitesSection" style="display:none;margin-bottom:24px">
+      <div class="section-title" style="margin-bottom:12px">📬 Einladungen</div>
+      <div id="invitesList"></div>
+    </div>
+    <div class="section-header">
+      <div><div class="section-title">Meine Kalender</div><div class="section-sub" id="calCountLabel">Lade...</div></div>
+      <button class="btn-primary" onclick="openCreateModal()">＋ Neuer Kalender</button>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="my-events-section" style="margin-top:28px">
+      <div class="section-header"><div><div class="section-title">Meine Termine</div><div class="section-sub" id="myEventsLabel"></div></div></div>
+      <div id="myEventsList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="screen-calendar" class="screen">
+  <nav class="navbar">
+    <div class="navbar-left">
+      <button class="back-btn" onclick="goHome()">← Zurück</button>
+      <div class="navbar-cal-dot" id="calNavDot"></div>
+      <span class="navbar-title" id="calNavTitle"></span>
+    </div>
+    <div class="navbar-right">
+      <button class="nav-icon-btn" onclick="openCalSettings()">⚙️</button>
+      <button class="btn-primary" onclick="openAddEvent()">＋ Termin</button>
+    </div>
+  </nav>
+  <div class="cal-toolbar">
+    <div class="view-nav">
+      <button class="month-arrow" onclick="calNavPrev()">‹</button>
+      <button class="month-label-btn" id="monthLabel"><span id="monthLabelText"></span></button>
+      <button class="month-arrow" onclick="calNavNext()">›</button>
+      <button class="today-btn" onclick="goToday()">Heute</button>
+    </div>
+    <div class="view-switcher">
+      <button class="view-btn" data-view="year" onclick="setCalView('year')">Jahr</button>
+      <button class="view-btn active" data-view="month" onclick="setCalView('month')">Monat</button>
+      <button class="view-btn" data-view="week" onclick="setCalView('week')">Woche</button>
+      <button class="view-btn" data-view="day" onclick="setCalView('day')">Tag</button>
+      <button class="view-btn" data-view="mine" onclick="setCalView('mine')">Meine</button>
+    </div>
+  </div>
+  <div id="viewMonth" class="view-container">
+    <div class="weekdays-header"><div>Mo</div><div>Di</div><div>Mi</div><div>Do</div><div>Fr</div><div style="color:var(--accent)">Sa</div><div style="color:var(--accent)">So</div></div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="day-panel" id="dayPanel">
+      <div class="day-panel-header">
+        <span id="dayPanelTitle">Wähle einen Tag</span>
+        <button class="day-panel-add" onclick="openAddEvent()" id="dayPanelAdd" style="display:none">＋</button>
+      </div>
+      <div class="day-events" id="dayEvents"></div>
+    </div>
+  </div>
+  <div id="viewYear" class="view-container" style="display:none"><div class="year-grid" id="yearGrid"></div></div>
+  <div id="viewWeek" class="view-container" style="display:none">
+    <div class="week-fixed-header"><div class="week-corner"></div><div class="week-day-headers" id="weekDayHeaders"></div></div>
+    <div class="week-scroll-wrap"><div class="week-time-col" id="weekTimeCol"></div><div class="week-days-grid" id="weekDaysGrid"></div></div>
+  </div>
+  <div id="viewDay" class="view-container" style="display:none">
+    <div id="dayViewHeader" style="padding:12px 20px;background:var(--surface);border-bottom:2px solid var(--border)"></div>
+    <div class="day-view-scroll"><div class="day-view-time-col" id="dayViewTimecol"></div><div class="day-view-events-col" id="dayViewEventsCol"></div></div>
+  </div>
+  <div id="viewMine" class="view-container" style="display:none;padding:16px 20px;overflow-y:auto">
+    <div id="mineViewLabel" style="font-size:13px;color:var(--text-muted);margin-bottom:12px"></div>
+    <div id="mineViewList"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="eventModal">
+  <div class="modal">
+    <div class="modal-header"><span class="modal-title" id="eventModalTitle">Neuer Termin</span><button class="modal-close" onclick="closeEventModal()">✕</button></div>
+    <div class="modal-form">
+      <div class="field"><label>Titel *</label><input type="text" id="ev-title" placeholder="z.B. Team-Meeting" /></div>
+      <div class="field-row">
+        <div class="field"><label>Datum Von *</label><input type="date" id="ev-date" /></div>
+        <div class="field"><label>Datum Bis</label><input type="date" id="ev-date-end" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Uhrzeit Von</label><input type="time" id="ev-time" /></div>
+        <div class="field"><label>Uhrzeit Bis</label><input type="time" id="ev-time-end" /></div>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea id="ev-desc" rows="2" style="padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;resize:none;outline:none"></textarea></div>
+      <div class="field"><label>Ort</label><input type="text" id="ev-location" placeholder="z.B. Besprechungsraum 1" /></div>
+      <div class="field"><label>Farbe</label><div class="color-picker" id="eventColorPicker"></div></div>
+      <div class="field">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label>Rollen <span id="rolesStatusLabel" style="font-weight:400;color:var(--text-muted)"></span></label>
+        </div>
+        <div class="roles-list" id="rolesList"></div>
+        <button type="button" class="btn-add-role" onclick="addRoleRow()">＋ Rolle hinzufügen</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="evDeleteBtn" onclick="deleteEvent()" style="display:none">🗑 Löschen</button>
+      <div style="flex:1"></div>
+      <button class="btn-secondary" onclick="closeEventModal()">Abbrechen</button>
+      <button class="btn-primary" onclick="saveEvent()">Speichern →</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="createModal">
+  <div class="modal">
+    <div class="modal-header"><span class="modal-title">Neuen Kalender erstellen</span><button class="modal-close" onclick="closeCreateModal()">✕</button></div>
+    <div class="modal-form">
+      <div class="field"><label>Name *</label><input type="text" id="cal-name" placeholder="z.B. Team Marketing" /></div>
+      <div class="field"><label>Beschreibung</label><textarea id="cal-desc" rows="2" style="padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;resize:none;outline:none"></textarea></div>
+      <div class="field"><label>Farbe</label><div class="color-picker" id="colorPicker"></div></div>
+      <div class="field">
+        <label>Sichtbarkeit</label>
+        <div class="vis-selector">
+          <button class="vis-btn" id="vis-private" onclick="selectVis('private')">🔒 Privat</button>
+          <button class="vis-btn active" id="vis-team" onclick="selectVis('team')">👥 Team</button>
+          <button class="vis-btn" id="vis-public" onclick="selectVis('public')">🌐 Öffentlich</button>
+        </div>
+        <div id="visHint" style="font-size:12px;color:var(--text-muted);margin-top:4px">Nur eingeladene Mitglieder können diesen Kalender sehen.</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeCreateModal()">Abbrechen</button>
+      <button class="btn-primary" onclick="createCalendar()">Erstellen →</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-settings" class="screen">
+  <nav class="navbar">
+    <div class="navbar-left"><button class="back-btn" onclick="closeSettings()">← Zurück</button><div class="navbar-cal-dot" id="settingsNavDot"></div><span class="navbar-title" id="settingsNavTitle"></span></div>
+    <div class="navbar-right"><button class="btn-primary" onclick="saveSettings()">Speichern</button></div>
+  </nav>
+  <div class="settings-tabs">
+    <button class="settings-tab active" id="stab-general" onclick="setSettingsTab('general')">⚙ Allgemein</button>
+    <button class="settings-tab" id="stab-members" onclick="setSettingsTab('members')">👥 Mitglieder</button>
+  </div>
+  <div class="settings-body" id="settingsBody"></div>
+  <div class="settings-save-bar">
+    <button class="btn-secondary" onclick="closeSettings()">Abbrechen</button>
+    <button class="btn-primary" onclick="saveSettings()">💾 Speichern</button>
+  </div>
+</div>
+<!-- App laden als ES-Modul -->
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
