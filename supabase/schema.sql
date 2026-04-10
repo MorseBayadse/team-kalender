@@ -83,13 +83,52 @@ alter table public.events           enable row level security;
 alter table public.event_roles      enable row level security;
 
 
--- ── 5. RLS-Policies: profiles ───────────────────────────────
--- Jeder eingeloggte Nutzer kann alle Profile lesen (für Einladungen nötig)
+-- ── 5. Hilfsfunktionen (SECURITY DEFINER umgeht RLS) ────────
+-- Verhindert Endlosrekursion in Policies die calendar_members abfragen
+
+create or replace function public.get_my_calendar_ids()
+returns setof uuid
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select calendar_id from public.calendar_members
+  where user_id = auth.uid() and status = 'accepted';
+$$;
+
+create or replace function public.is_calendar_admin(p_calendar_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.calendar_members
+    where calendar_id = p_calendar_id
+      and user_id = auth.uid()
+      and role in ('owner', 'admin')
+      and status = 'accepted'
+  );
+$$;
+
+create or replace function public.get_event_calendar_id(p_event_id uuid)
+returns uuid
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select calendar_id from public.events where id = p_event_id;
+$$;
+
+
+-- ── 6. RLS-Policies: profiles ───────────────────────────────
 create policy "profiles: jeder kann lesen"
   on public.profiles for select
-  using (auth.role() = 'authenticated');
+  using (auth.uid() is not null);
 
--- Nur du selbst kannst dein Profil anlegen/bearbeiten
 create policy "profiles: nur eigene anlegen"
   on public.profiles for insert
   with check (auth.uid() = id);
@@ -99,178 +138,97 @@ create policy "profiles: nur eigene bearbeiten"
   using (auth.uid() = id);
 
 
--- ── 6. RLS-Policies: calendars ──────────────────────────────
--- Sehen: nur Kalender bei denen du Mitglied bist (oder öffentliche)
-create policy "calendars: nur eigene sehen"
+-- ── 7. RLS-Policies: calendars ──────────────────────────────
+create policy "calendars: sehen"
   on public.calendars for select
   using (
     visibility = 'public'
-    or exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = id
-        and cm.user_id = auth.uid()
-        and cm.status = 'accepted'
-    )
+    or created_by = auth.uid()
+    or id in (select public.get_my_calendar_ids())
   );
 
--- Erstellen: jeder eingeloggte Nutzer
-create policy "calendars: eingeloggte können erstellen"
+create policy "calendars: erstellen"
   on public.calendars for insert
-  with check (auth.role() = 'authenticated' and auth.uid() = created_by);
+  with check (auth.uid() is not null and auth.uid() = created_by);
 
--- Bearbeiten: nur Owner oder Admin
-create policy "calendars: nur owner/admin können bearbeiten"
+create policy "calendars: bearbeiten"
   on public.calendars for update
-  using (
-    exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = id
-        and cm.user_id = auth.uid()
-        and cm.role in ('owner', 'admin')
-        and cm.status = 'accepted'
-    )
-  );
+  using (public.is_calendar_admin(id));
 
--- Löschen: nur Owner
-create policy "calendars: nur owner kann löschen"
+create policy "calendars: löschen"
   on public.calendars for delete
   using (created_by = auth.uid());
 
 
--- ── 7. RLS-Policies: calendar_members ──────────────────────
--- Sehen: nur wenn du selbst Mitglied dieses Kalenders bist
-create policy "members: nur sehen wenn Mitglied"
+-- ── 8. RLS-Policies: calendar_members ──────────────────────
+create policy "members: sehen"
   on public.calendar_members for select
   using (
-    exists (
-      select 1 from public.calendar_members cm2
-      where cm2.calendar_id = calendar_id
-        and cm2.user_id = auth.uid()
-        and cm2.status = 'accepted'
-    )
-    or user_id = auth.uid()   -- eigene pending-Einladungen sehen
+    user_id = auth.uid()
+    or calendar_id in (select public.get_my_calendar_ids())
   );
 
--- Einladen: nur Owner oder Admin
-create policy "members: nur owner/admin können einladen"
+create policy "members: einladen"
   on public.calendar_members for insert
   with check (
-    exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.role in ('owner', 'admin')
-        and cm.status = 'accepted'
-    )
-    or (
-      -- Owner-Eintrag beim Erstellen eines neuen Kalenders erlaubt
-      auth.uid() = user_id and role = 'owner'
-    )
+    public.is_calendar_admin(calendar_id)
+    or (auth.uid() = user_id and role = 'owner')
   );
 
--- Status ändern (accept/decline): nur du selbst für deine eigene Einladung
-create policy "members: eigenen Status ändern"
+create policy "members: status ändern"
   on public.calendar_members for update
   using (user_id = auth.uid());
 
--- Entfernen: Owner/Admin können entfernen, oder du selbst (austreten)
-create policy "members: owner/admin oder selbst entfernen"
+create policy "members: entfernen"
   on public.calendar_members for delete
   using (
     user_id = auth.uid()
-    or exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.role in ('owner', 'admin')
-        and cm.status = 'accepted'
-    )
+    or public.is_calendar_admin(calendar_id)
   );
 
 
--- ── 8. RLS-Policies: events ─────────────────────────────────
--- Sehen: Mitglieder des Kalenders
-create policy "events: nur Mitglieder sehen"
+-- ── 9. RLS-Policies: events ────────────────────────────────
+create policy "events: sehen"
   on public.events for select
-  using (
-    exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.status = 'accepted'
-    )
-  );
+  using (calendar_id in (select public.get_my_calendar_ids()));
 
--- Erstellen: akzeptierte Mitglieder
-create policy "events: Mitglieder können erstellen"
+create policy "events: erstellen"
   on public.events for insert
   with check (
     auth.uid() = created_by
-    and exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.status = 'accepted'
-    )
+    and calendar_id in (select public.get_my_calendar_ids())
   );
 
--- Bearbeiten: Ersteller, Admin oder Owner
-create policy "events: Ersteller/Admin/Owner können bearbeiten"
+create policy "events: bearbeiten"
   on public.events for update
   using (
     created_by = auth.uid()
-    or exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.role in ('owner', 'admin')
-        and cm.status = 'accepted'
-    )
+    or public.is_calendar_admin(calendar_id)
   );
 
--- Löschen: Ersteller, Admin oder Owner
-create policy "events: Ersteller/Admin/Owner können löschen"
+create policy "events: löschen"
   on public.events for delete
   using (
     created_by = auth.uid()
-    or exists (
-      select 1 from public.calendar_members cm
-      where cm.calendar_id = calendar_id
-        and cm.user_id = auth.uid()
-        and cm.role in ('owner', 'admin')
-        and cm.status = 'accepted'
-    )
+    or public.is_calendar_admin(calendar_id)
   );
 
 
--- ── 9. RLS-Policies: event_roles ───────────────────────────
-create policy "event_roles: Mitglieder können sehen"
+-- ── 10. RLS-Policies: event_roles ──────────────────────────
+create policy "event_roles: sehen"
   on public.event_roles for select
   using (
-    exists (
-      select 1 from public.events e
-      join public.calendar_members cm on cm.calendar_id = e.calendar_id
-      where e.id = event_id
-        and cm.user_id = auth.uid()
-        and cm.status = 'accepted'
-    )
+    public.get_event_calendar_id(event_id) in (select public.get_my_calendar_ids())
   );
 
-create policy "event_roles: Ersteller/Admin können verwalten"
+create policy "event_roles: verwalten"
   on public.event_roles for all
   using (
-    exists (
-      select 1 from public.events e
-      join public.calendar_members cm on cm.calendar_id = e.calendar_id
-      where e.id = event_id
-        and cm.user_id = auth.uid()
-        and (e.created_by = auth.uid() or cm.role in ('owner', 'admin'))
-        and cm.status = 'accepted'
-    )
+    public.get_event_calendar_id(event_id) in (select public.get_my_calendar_ids())
   );
 
 
--- ── 10. Automatisches Profil beim Registrieren anlegen ──────
+-- ── 11. Automatisches Profil beim Registrieren anlegen ──────
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
