@@ -22,7 +22,7 @@
   <div class="auth-card">
     <div class="logo-area">
       <div class="logo-icon">📅</div>
-      <div class="logo-name">Kalender App</div>
+      <div class="logo-name">Team-Kalender</div>
       <div class="logo-tagline">Gemeinsam organisiert</div>
     </div>
     <div class="auth-tabs">
@@ -51,12 +51,13 @@
 
 <div id="screen-home" class="screen">
   <nav class="navbar">
-    <div class="navbar-left"><div class="navbar-logo">📅</div><span class="navbar-title">Kalender App</span></div>
+    <div class="navbar-left"><div class="navbar-logo">📅</div><span class="navbar-title">Team-Kalender</span></div>
     <div class="navbar-right" style="position:relative">
       <button class="avatar-btn" id="avatarBtn" onclick="toggleDropdown()"><span id="navAvatar"></span></button>
       <div class="avatar-dropdown" id="avatarDropdown">
         <div class="dropdown-header"><div class="name" id="dropdownName"></div><div style="font-size:12px;color:var(--text-muted)" id="dropdownEmail"></div></div>
         <div id="userSwitchSection"></div>
+        <button class="dropdown-item" onclick="openIcsDialog()">🔗 In Outlook / Apple Kalender abonnieren</button>
         <button class="dropdown-item danger" onclick="handleLogout()">🚪 Abmelden</button>
       </div>
     </div>
@@ -86,10 +87,11 @@
       <span class="navbar-title" id="calNavTitle"></span>
     </div>
     <div class="navbar-right">
-      <button class="nav-icon-btn" onclick="openCalSettings()">⚙️</button>
       <button class="btn-primary" onclick="openAddEvent()">＋ Termin</button>
+      <button class="nav-icon-btn" onclick="openCalSettings()" title="Kalender-Einstellungen">⚙️</button>
     </div>
   </nav>
+  <div class="calendar-strip" id="calendarStrip"></div>
   <div class="cal-toolbar">
     <div class="view-nav">
       <button class="month-arrow" onclick="calNavPrev()">‹</button>
@@ -106,7 +108,7 @@
     </div>
   </div>
   <div id="viewMonth" class="view-container">
-    <div class="weekdays-header"><div>Mo</div><div>Di</div><div>Mi</div><div>Do</div><div>Fr</div><div style="color:var(--accent)">Sa</div><div style="color:var(--accent)">So</div></div>
+    <div class="weekdays-header with-kw"><div class="kw-head">KW</div><div>Mo</div><div>Di</div><div>Mi</div><div>Do</div><div>Fr</div><div style="color:var(--accent)">Sa</div><div style="color:var(--accent)">So</div></div>
     <div class="cal-grid" id="calGrid"></div>
     <div class="day-panel" id="dayPanel">
       <div class="day-panel-header">
@@ -154,6 +156,15 @@
         <div class="roles-list" id="rolesList"></div>
         <button type="button" class="btn-add-role" onclick="addRoleRow()">＋ Rolle hinzufügen</button>
       </div>
+      <div class="field" id="evShareSection" style="display:none">
+        <label>🔗 Termin teilen (nur lesen)</label>
+        <div id="evShareList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="evShareTarget" class="role-name-select" style="flex:1;padding:9px 12px"></select>
+          <button type="button" class="btn-primary" style="padding:9px 14px;font-size:13px" onclick="addEventShareFromModal()">＋ Teilen</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Nutzer sehen den Termin in ihrem privaten Kalender; Team-Kalender zeigen ihn allen Mitgliedern.</div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn-danger" id="evDeleteBtn" onclick="deleteEvent()" style="display:none">🗑 Löschen</button>
@@ -188,6 +199,46 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="icsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">In externem Kalender abonnieren</span>
+      <button class="modal-close" onclick="closeIcsDialog()">✕</button>
+    </div>
+    <div class="modal-form">
+      <div style="font-size:13px;color:var(--text-sub);line-height:1.5;margin-bottom:14px">
+        Kopiere die URL unten und füge sie in deinem Outlook, Apple Kalender oder Google Kalender
+        als <strong>Kalenderabonnement</strong> ein. Der externe Kalender zeigt dann alle Termine,
+        an denen du beteiligt bist (read-only), und aktualisiert sich automatisch.
+      </div>
+      <div class="field">
+        <label>Deine persönliche ICS-URL</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="ics-url" readonly style="flex:1;font-family:monospace;font-size:12px" />
+          <button class="btn-primary" style="padding:9px 14px;font-size:13px" onclick="copyIcsUrl()">Kopieren</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+          Behandle diesen Link wie ein Passwort – wer ihn hat, sieht deine Termine.
+        </div>
+      </div>
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-sub)">Anleitung: Outlook / Apple / Google</summary>
+        <div style="font-size:12px;color:var(--text-sub);line-height:1.6;margin-top:8px">
+          <strong>Outlook:</strong> Datei → Konto­einstellungen → Internetkalender → Neu → URL einfügen.<br>
+          <strong>Apple Kalender (Mac):</strong> Ablage → Neues Kalender­abonnement → URL einfügen.<br>
+          <strong>Apple Kalender (iOS):</strong> Einstellungen → Kalender → Accounts → Account hinzufügen → Anderer → Kalender­abo hinzufügen.<br>
+          <strong>Google Kalender:</strong> Andere Kalender → + → Per URL → URL einfügen.
+        </div>
+      </details>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger" onclick="regenIcsUrl()">🔄 Neuen Link erzeugen</button>
+      <div style="flex:1"></div>
+      <button class="btn-secondary" onclick="closeIcsDialog()">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <div id="screen-settings" class="screen">
   <nav class="navbar">
     <div class="navbar-left"><button class="back-btn" onclick="closeSettings()">← Zurück</button><div class="navbar-cal-dot" id="settingsNavDot"></div><span class="navbar-title" id="settingsNavTitle"></span></div>
@@ -196,6 +247,7 @@
   <div class="settings-tabs">
     <button class="settings-tab active" id="stab-general" onclick="setSettingsTab('general')">⚙ Allgemein</button>
     <button class="settings-tab" id="stab-members" onclick="setSettingsTab('members')">👥 Mitglieder</button>
+    <button class="settings-tab" id="stab-sharing" onclick="setSettingsTab('sharing')">🔗 Teilen</button>
   </div>
   <div class="settings-body" id="settingsBody"></div>
   <div class="settings-save-bar">
