@@ -56,3 +56,59 @@
   .week-day-header .wdh-num { font-size:13px; width:22px; height:22px; }
   .day-mini-item .dmi-title { max-width:100px; }
 }
+
+/* ── Sonntag / Feiertage (RLP) – zartroter Hintergrund ────── */
+.cal-day.is-sun-hol { background:#FEECEC; }
+.cal-day.is-sun-hol.other-month { background:#FCE4E4; }
+.cal-day.is-sun-hol.today { background:#FFD9D9; }
+.week-day-header.is-sun-hol { background:#FEECEC; }
+.week-day-col.is-sun-hol { background:#FEF2F2; }
+.week-extra-cell.is-sun-hol { background:#FEECEC; }
+#dayViewHeader.is-sun-hol { background:#FEECEC; }
+.day-view-events-col.is-sun-hol { background:#FEF6F6; }
+.mini-day.is-sun-hol { background:#FEECEC; }
+
+/* ── Jahresansicht – neu strukturiert ─────────────────────── */
+.year-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:12px; overflow-y:auto; flex:1; }
+.mini-month { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:6px 6px 8px; display:flex; flex-direction:column; min-width:0; }
+.mini-month-title { font-size:12px; font-weight:700; text-align:center; margin-bottom:4px; color:var(--text); cursor:pointer; padding:2px 0; border-radius:4px; }
+.mini-month-title:hover { background:var(--primary-light); color:var(--primary); }
+.mini-month-body { display:flex; gap:3px; min-width:0; }
+.mini-kw-col { display:flex; flex-direction:column; gap:0; flex-shrink:0; }
+.mini-kw-head { font-size:8px; font-weight:700; color:var(--text-muted); text-align:center; letter-spacing:.3px; height:12px; line-height:12px; }
+.mini-kw-num { font-size:8px; font-weight:600; color:var(--text-muted); text-align:center; flex:1; display:flex; align-items:center; justify-content:center; line-height:1; min-height:13px; }
+.mini-month-right { flex:1; display:flex; flex-direction:column; min-width:0; }
+.mini-wd-row { display:grid; grid-template-columns:repeat(7,1fr); height:12px; }
+.mini-wd { font-size:8px; font-weight:700; color:var(--text-muted); text-align:center; line-height:12px; }
+.mini-wd-sun { color:#DC2626; }
+.mini-day-grid { display:grid; grid-template-columns:repeat(7,1fr); flex:1; gap:0; }
+.mini-month .mini-day { aspect-ratio:auto; min-height:13px; font-size:8px; border-radius:2px; position:relative; padding:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.mini-month .mini-day-empty { cursor:default; }
+.mini-month .mini-day-num { font-size:9px; font-weight:600; line-height:1; }
+.mini-month .mini-day.today-mini { background:var(--primary); color:#fff; }
+.mini-month .mini-day.today-mini .mini-day-num { color:#fff; }
+.mini-month .mini-day.is-sun-hol { background:#FEECEC; }
+.mini-month .mini-day.is-sun-hol.today-mini { background:var(--primary); }
+.mini-month .mini-day-dot { position:absolute; bottom:1px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; }
+
+/* Mobile Jahresansicht: 3 Spalten × 4 Zeilen – alles auf den Bildschirm */
+@media (max-width:640px) {
+  .year-grid { grid-template-columns:repeat(3,1fr); gap:6px; padding:6px; overflow:hidden; grid-auto-rows:1fr; }
+  .mini-month { padding:4px 3px 5px; border-radius:7px; }
+  .mini-month-title { font-size:10px; margin-bottom:2px; padding:1px 0; }
+  .mini-month-body { gap:2px; }
+  .mini-kw-head, .mini-kw-num { font-size:7px; }
+  .mini-kw-num { min-height:11px; }
+  .mini-wd { font-size:7px; }
+  .mini-wd-row { height:10px; }
+  .mini-month .mini-day { min-height:11px; }
+  .mini-month .mini-day-num { font-size:8px; }
+  .mini-month .mini-day-dot { width:3px; height:3px; bottom:0; }
+}
+@media (max-width:380px) {
+  .year-grid { gap:4px; padding:4px; }
+  .mini-month { padding:3px 2px 4px; }
+  .mini-month-title { font-size:9px; }
+  .mini-kw-head, .mini-kw-num { font-size:6px; }
+  .mini-month .mini-day-num { font-size:7px; }
+}
