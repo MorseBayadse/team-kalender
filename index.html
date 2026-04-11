@@ -121,11 +121,15 @@
   <div id="viewYear" class="view-container" style="display:none"><div class="year-grid" id="yearGrid"></div></div>
   <div id="viewWeek" class="view-container" style="display:none">
     <div class="week-fixed-header"><div class="week-corner"></div><div class="week-day-headers" id="weekDayHeaders"></div></div>
+    <div class="week-extra-row" id="weekEarlyRow"><div class="week-extra-label">vor 06:00</div><div class="week-extra-days" id="weekEarlyDays"></div></div>
     <div class="week-scroll-wrap"><div class="week-time-col" id="weekTimeCol"></div><div class="week-days-grid" id="weekDaysGrid"></div></div>
+    <div class="week-extra-row" id="weekLateRow"><div class="week-extra-label">ab 19:00</div><div class="week-extra-days" id="weekLateDays"></div></div>
   </div>
   <div id="viewDay" class="view-container" style="display:none">
     <div id="dayViewHeader" style="padding:12px 20px;background:var(--surface);border-bottom:2px solid var(--border)"></div>
+    <div class="day-extra-row" id="dayEarlyRow"><div class="day-extra-label">vor 06:00</div><div class="day-extra-items" id="dayEarlyItems"></div></div>
     <div class="day-view-scroll"><div class="day-view-time-col" id="dayViewTimecol"></div><div class="day-view-events-col" id="dayViewEventsCol"></div></div>
+    <div class="day-extra-row" id="dayLateRow"><div class="day-extra-label">ab 19:00</div><div class="day-extra-items" id="dayLateItems"></div></div>
   </div>
   <div id="viewMine" class="view-container" style="display:none;padding:16px 20px;overflow-y:auto">
     <div id="mineViewLabel" style="font-size:13px;color:var(--text-muted);margin-bottom:12px"></div>
