@@ -82,9 +82,9 @@
 .mini-wd { font-size:8px; font-weight:700; color:var(--text-muted); text-align:center; line-height:12px; }
 .mini-wd-sun { color:#DC2626; }
 .mini-day-grid { display:grid; grid-template-columns:repeat(7,1fr); flex:1; gap:0; }
-.mini-month .mini-day { aspect-ratio:auto; min-height:13px; font-size:8px; border-radius:2px; position:relative; padding:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.mini-month .mini-day { aspect-ratio:auto; min-height:18px; font-size:11px; border-radius:2px; position:relative; padding:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
 .mini-month .mini-day-empty { cursor:default; }
-.mini-month .mini-day-num { font-size:9px; font-weight:600; line-height:1; }
+.mini-month .mini-day-num { font-size:12px; font-weight:700; line-height:1; }
 .mini-month .mini-day.today-mini { background:var(--primary); color:#fff; }
 .mini-month .mini-day.today-mini .mini-day-num { color:#fff; }
 .mini-month .mini-day.is-sun-hol { background:#FEECEC; }
@@ -93,22 +93,25 @@
 
 /* Mobile Jahresansicht: 3 Spalten × 4 Zeilen – alles auf den Bildschirm */
 @media (max-width:640px) {
-  .year-grid { grid-template-columns:repeat(3,1fr); gap:6px; padding:6px; overflow:hidden; grid-auto-rows:1fr; }
-  .mini-month { padding:4px 3px 5px; border-radius:7px; }
-  .mini-month-title { font-size:10px; margin-bottom:2px; padding:1px 0; }
+  .year-grid { grid-template-columns:repeat(3,1fr); gap:5px; padding:5px; overflow:hidden; grid-auto-rows:1fr; }
+  .mini-month { padding:4px 3px 4px; border-radius:7px; }
+  .mini-month-title { font-size:12px; margin-bottom:2px; padding:1px 0; }
   .mini-month-body { gap:2px; }
-  .mini-kw-head, .mini-kw-num { font-size:7px; }
-  .mini-kw-num { min-height:11px; }
-  .mini-wd { font-size:7px; }
-  .mini-wd-row { height:10px; }
-  .mini-month .mini-day { min-height:11px; }
-  .mini-month .mini-day-num { font-size:8px; }
-  .mini-month .mini-day-dot { width:3px; height:3px; bottom:0; }
+  .mini-kw-head { font-size:9px; height:14px; line-height:14px; }
+  .mini-kw-num { font-size:10px; min-height:16px; }
+  .mini-wd { font-size:9px; line-height:13px; }
+  .mini-wd-row { height:13px; }
+  .mini-month .mini-day { min-height:16px; }
+  .mini-month .mini-day-num { font-size:12px; font-weight:700; }
+  .mini-month .mini-day-dot { width:4px; height:4px; bottom:0; }
 }
 @media (max-width:380px) {
   .year-grid { gap:4px; padding:4px; }
   .mini-month { padding:3px 2px 4px; }
-  .mini-month-title { font-size:9px; }
-  .mini-kw-head, .mini-kw-num { font-size:6px; }
-  .mini-month .mini-day-num { font-size:7px; }
+  .mini-month-title { font-size:11px; }
+  .mini-kw-head { font-size:8px; height:13px; line-height:13px; }
+  .mini-kw-num { font-size:9px; min-height:14px; }
+  .mini-wd { font-size:8px; }
+  .mini-month .mini-day { min-height:14px; }
+  .mini-month .mini-day-num { font-size:11px; font-weight:700; }
 }
