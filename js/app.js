@@ -837,7 +837,7 @@ window.selectDayYear = ds => {
 
 // ── Wochenansicht ────────────────────────────────────────────
 const CAL_START_HOUR = 6;   // Tag beginnt um 06:00
-const CAL_END_HOUR   = 19;  // Tag endet um 19:00 (untere Kante)
+const CAL_END_HOUR   = 24;  // Tag endet um 19:00 (untere Kante)
 function renderWeekView() {
   if (!viewWeek) viewWeek = getMondayOf(toDateStr(new Date()));
   const today  = toDateStr(new Date());
