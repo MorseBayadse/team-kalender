@@ -36,6 +36,58 @@ function isoWeek(dateLike) {
   return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
 }
 
+// ── Feiertage Rheinland-Pfalz ───────────────────────────────
+// Gauß'sche Osterformel
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mo = Math.floor((h + l - 7 * m + 114) / 31);
+  const da = (h + l - 7 * m + 114) % 31 + 1;
+  return new Date(year, mo - 1, da);
+}
+const _holidayCache = new Map();
+function getRLPHolidays(year) {
+  if (_holidayCache.has(year)) return _holidayCache.get(year);
+  const easter = easterSunday(year);
+  const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return toDateStr(x); };
+  const set = new Set([
+    `${year}-01-01`,          // Neujahr
+    addD(easter, -2),          // Karfreitag
+    addD(easter, 1),           // Ostermontag
+    `${year}-05-01`,          // Tag der Arbeit
+    addD(easter, 39),          // Christi Himmelfahrt
+    addD(easter, 50),          // Pfingstmontag
+    addD(easter, 60),          // Fronleichnam (RLP)
+    `${year}-10-03`,          // Tag der Deutschen Einheit
+    `${year}-11-01`,          // Allerheiligen (RLP)
+    `${year}-12-25`,          // 1. Weihnachtstag
+    `${year}-12-26`,          // 2. Weihnachtstag
+  ]);
+  _holidayCache.set(year, set);
+  return set;
+}
+function isHoliday(ds) {
+  if (!ds || typeof ds !== 'string') return false;
+  const y = parseInt(ds.slice(0, 4), 10);
+  return getRLPHolidays(y).has(ds);
+}
+// Sonntag oder Feiertag? ds = 'YYYY-MM-DD'
+function isSunOrHol(ds) {
+  if (!ds) return false;
+  const d = new Date(ds + 'T00:00:00');
+  return d.getDay() === 0 || isHoliday(ds);
+}
+
 // Rollen-Status eines Termins: 'none' (keine Rollen), 'full' (alle besetzt), 'open' (mindestens eine offen)
 function getRoleStatus(ev) {
   const roles = ev?.event_roles || [];
@@ -682,7 +734,7 @@ function renderMonth() {
       const ds   = toDateStr(d);
       const otherMonth = d.getMonth() !== viewMonth;
       const dayEvs = events.filter(e => e.date === ds || (e.date <= ds && e.date_end >= ds));
-      const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':''].filter(Boolean).join(' ');
+      const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ');
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
         <div class="day-num">${d.getDate()}</div>
         ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
@@ -724,45 +776,58 @@ function renderYearView() {
   document.getElementById('monthLabelText').textContent = viewYear;
   const grid = document.getElementById('yearGrid');
   const events = getEvents();
+  const today = toDateStr(new Date());
+  // Kurze Wochentags-Labels (Mo, Di, Mi, Do, Fr, Sa, So)
+  const WD = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
   let html = '';
   for (let m = 0; m < 12; m++) {
-    const mn   = new Date(viewYear, m, 1).toLocaleDateString('de-DE', { month: 'long' });
+    const mn   = new Date(viewYear, m, 1).toLocaleDateString('de-DE', { month: 'short' }).replace('.', '');
     const fd   = new Date(viewYear, m, 1);
-    const ld   = new Date(viewYear, m + 1, 0);
-    const sdow = (fd.getDay() + 6) % 7;
-    const today = toDateStr(new Date());
-    let cells = '';
+    const sdow = (fd.getDay() + 6) % 7; // Mo=0
+    // KW-Spalte + Wochentage + Tage-Grid getrennt rendern
+    let kwCells = '';
+    let dayCells = '';
     let day = 1 - sdow;
-    for (let row = 0; row < 5; row++) {
-      // KW-Nummer aus dem Montag dieser Zeile
+    for (let row = 0; row < 6; row++) {
       const rowMonday = new Date(viewYear, m, day);
-      cells += `<div class="mini-kw">KW&nbsp;${isoWeek(rowMonday)}</div>`;
+      kwCells += `<div class="mini-kw-num">${isoWeek(rowMonday)}</div>`;
       for (let col = 0; col < 7; col++) {
-        const d   = new Date(viewYear, m, day);
-        const ds  = toDateStr(d);
+        const d    = new Date(viewYear, m, day);
+        const ds   = toDateStr(d);
         const valid = d.getMonth() === m;
-        const evs = valid ? events.filter(e => e.date === ds) : [];
+        const evs  = valid ? events.filter(e => e.date === ds || (e.date_end && e.date <= ds && e.date_end >= ds)) : [];
         const isToday = ds === today && valid;
-        cells += `<div class="mini-day${isToday?' today-mini':''}" onclick="valid&&selectDayYear('${ds}')">
-          <div class="mini-day-num">${valid ? d.getDate() : ''}</div>
-          <div class="mini-dot-row">${evs.slice(0,3).map(e=>{
-            const rs = getRoleStatus(e);
-            const baseColor = e.color||activeCalendarData?.color||'#5B5FEF';
-            const cls = rs === 'none' ? 'mini-dot' : `mini-dot mini-dot-role ${rs}`;
-            const bg  = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : baseColor;
-            return `<div class="${cls}" style="background:${bg}"></div>`;
-          }).join('')}</div>
-        </div>`;
+        const sunHol  = valid && isSunOrHol(ds);
+        const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ');
+        const handler = valid ? `onclick="selectDayYear('${ds}')"` : '';
+        const hasEv = evs.length > 0;
+        const rs = hasEv ? getRoleStatus(evs[0]) : 'none';
+        const dotColor = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : (evs[0]?.color || activeCalendarData?.color || '#5B5FEF');
+        const dot = hasEv ? `<div class="mini-day-dot" style="background:${dotColor}"></div>` : '';
+        dayCells += `<div class="${cls}" ${handler}><span class="mini-day-num">${valid?d.getDate():''}</span>${dot}</div>`;
         day++;
       }
+      // Abbruch, wenn Monat fertig und keine weiteren Tage mehr kommen
+      if (day > 31 && new Date(viewYear, m, day).getMonth() !== m) break;
     }
+    const wdHeader = WD.map((l, i) => `<div class="mini-wd${i===6?' mini-wd-sun':''}">${l}</div>`).join('');
     html += `<div class="mini-month">
-      <div class="mini-month-title">${mn}</div>
-      <div class="mini-month-grid">${cells}</div>
+      <div class="mini-month-title" onclick="setCalViewFromYear(${m})">${mn}</div>
+      <div class="mini-month-body">
+        <div class="mini-kw-col"><div class="mini-kw-head">KW</div>${kwCells}</div>
+        <div class="mini-month-right">
+          <div class="mini-wd-row">${wdHeader}</div>
+          <div class="mini-day-grid">${dayCells}</div>
+        </div>
+      </div>
     </div>`;
   }
   grid.innerHTML = html;
 }
+window.setCalViewFromYear = m => {
+  viewMonth = m;
+  setCalView('month');
+};
 window.selectDayYear = ds => {
   const d = new Date(ds + 'T00:00:00');
   viewMonth = d.getMonth();
@@ -789,7 +854,7 @@ function renderWeekView() {
 
   document.getElementById('weekDayHeaders').innerHTML = days.map(ds => {
     const d   = new Date(ds+'T00:00:00');
-    const cls = ds === today ? 'week-day-header today-col' : 'week-day-header';
+    const cls = ['week-day-header', ds===today?'today-col':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ');
     return `<div class="${cls}">
       <div class="wdh-dow">${d.toLocaleDateString('de-DE',{weekday:'short'})}</div>
       <div class="wdh-num">${d.getDate()}</div>
@@ -825,8 +890,9 @@ function renderWeekView() {
     if (earlyEvs.length) anyEarly = true;
     if (lateEvs.length)  anyLate  = true;
     const todayCls = ds === today ? ' today-col' : '';
-    earlyHtml += `<div class="week-extra-cell${todayCls}">${earlyEvs.map(miniPill).join('')}</div>`;
-    lateHtml  += `<div class="week-extra-cell${todayCls}">${lateEvs.map(miniPill).join('')}</div>`;
+    const sunHolCls = isSunOrHol(ds) ? ' is-sun-hol' : '';
+    earlyHtml += `<div class="week-extra-cell${todayCls}${sunHolCls}">${earlyEvs.map(miniPill).join('')}</div>`;
+    lateHtml  += `<div class="week-extra-cell${todayCls}${sunHolCls}">${lateEvs.map(miniPill).join('')}</div>`;
     const lines  = Array.from({length:HOURS+1}, (_,h) => `<div class="week-hour-line" style="top:${h*H}px"></div>`).join('');
     const blocks = mainEvs.map(ev => {
       const [hh,mm] = (ev.time||'00:00').split(':').map(Number);
@@ -834,7 +900,7 @@ function renderWeekView() {
       const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); const d=((eh*60+em)-(hh*60+mm))/60*H; return Math.min(d, (HOURS*H)-top); })() : H;
       return `<div class="week-event-block" style="top:${top}px;height:${Math.max(dur,20)}px;left:4px;right:4px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`;
     }).join('');
-    return `<div class="week-day-col${todayCls}" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
+    return `<div class="week-day-col${todayCls}${sunHolCls}" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
   }).join('');
 
   if (earlyRow) earlyRow.innerHTML = earlyHtml;
@@ -868,6 +934,9 @@ function renderDayView() {
   const col  = document.getElementById('dayViewEventsCol');
   col.style.position = 'relative';
   col.style.height   = HOURS*H + 'px';
+  col.classList.toggle('is-sun-hol', isSunOrHol(ds));
+  const dayHdrEl = document.getElementById('dayViewHeader');
+  if (dayHdrEl) dayHdrEl.classList.toggle('is-sun-hol', isSunOrHol(ds));
 
   const timed    = events.filter(e => e.time);
   const earlyEvs = timed.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h < CAL_START_HOUR; });
