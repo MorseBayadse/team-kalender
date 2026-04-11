@@ -11,6 +11,10 @@ let allProfiles = [];   // gecachte Profile für Mitglieder-Anzeige
 const CAL_COLORS = ['#5B5FEF','#FF6B6B','#43D9AD','#FFB547','#8B8FF8','#06B6D4','#F59E0B','#EC4899','#10B981','#6366F1'];
 let selectedColor = CAL_COLORS[0], selectedVisibility = 'team', eventSelectedColor = CAL_COLORS[0];
 let activeCalendarId = null, activeCalendarData = null;
+// Multi-Kalender-Unterstützung
+let allCalendars       = [];        // alle akzeptierten Kalender {id,name,color}
+let loadedCalendars    = new Map(); // id -> getCalendarDetails-Daten (Cache)
+let activeCalendarIds  = new Set(); // aktuell in der Ansicht sichtbare Kalender
 let viewYear = new Date().getFullYear(), viewMonth = new Date().getMonth();
 let viewWeek = null, selectedDay = null, calView = 'month', editingEventId = null;
 let currentRoles = [];
@@ -22,6 +26,29 @@ const toDateStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'
 const dayAddDays = (s, n) => { const d = new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return toDateStr(d); };
 const weekAddDays = (s, n) => dayAddDays(s, n);
 const getMondayOf = d => { const r=new Date(d+'T00:00:00'); const day=r.getDay(); r.setDate(r.getDate()-(day===0?6:day-1)); return toDateStr(r); };
+// ISO 8601 Kalenderwoche
+function isoWeek(dateLike) {
+  const d = (dateLike instanceof Date) ? new Date(dateLike) : new Date(dateLike + 'T00:00:00');
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
+}
+
+// Rollen-Status eines Termins: 'none' (keine Rollen), 'full' (alle besetzt), 'open' (mindestens eine offen)
+function getRoleStatus(ev) {
+  const roles = ev?.event_roles || [];
+  if (!roles.length) return 'none';
+  return roles.every(r => r.assigned_user_id) ? 'full' : 'open';
+}
+// HTML für die Kontrollleuchte. Liefert '' wenn der Termin keine Rollen hat.
+function roleLightHTML(ev, variant = '') {
+  const s = getRoleStatus(ev);
+  if (s === 'none') return '';
+  const title = s === 'full' ? 'Alle Rollen besetzt' : 'Noch nicht alle Rollen besetzt';
+  return `<span class="ev-status-dot ${s}${variant?' '+variant:''}" title="${title}"></span>`;
+}
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -146,6 +173,8 @@ window.handleLogin = async e => {
 // ── App betreten ─────────────────────────────────────────────
 async function enterApp(user) {
   currentUser = user;
+  // Privaten Kalender sicherstellen (Backfill für Altnutzer)
+  try { await DB.ensurePersonalCalendar(user.id); } catch (_) {}
   // Profile für Mitglieder-Anzeige vorladen
   allProfiles = await DB.getProfiles().catch(() => []);
 
@@ -156,6 +185,46 @@ async function enterApp(user) {
   showScreen('home');
   await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
 }
+
+// ── ICS-Abo (Outlook/Apple Kalender) ─────────────────────────
+window.openIcsDialog = async () => {
+  closeDropdown();
+  const modal = document.getElementById('icsModal');
+  const urlInp = document.getElementById('ics-url');
+  urlInp.value = 'Lädt...';
+  modal.classList.add('open');
+  try {
+    let sub = await DB.getIcsSubscription(currentUser.id);
+    if (!sub) sub = await DB.createIcsSubscription(currentUser.id);
+    urlInp.value = sub.url || DB.icsUrl(sub.token);
+  } catch (err) {
+    urlInp.value = '';
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+window.closeIcsDialog = () => {
+  document.getElementById('icsModal').classList.remove('open');
+};
+window.copyIcsUrl = async () => {
+  const inp = document.getElementById('ics-url');
+  try {
+    await navigator.clipboard.writeText(inp.value);
+    showToast('URL kopiert.');
+  } catch (_) {
+    inp.select(); document.execCommand('copy');
+    showToast('URL kopiert.');
+  }
+};
+window.regenIcsUrl = async () => {
+  if (!confirm('Alten Link ungültig machen und einen neuen erzeugen?')) return;
+  try {
+    const sub = await DB.createIcsSubscription(currentUser.id);
+    document.getElementById('ics-url').value = sub.url;
+    showToast('Neuer Link erzeugt.');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
 
 // ── Abmeldung ────────────────────────────────────────────────
 window.handleLogout = async () => {
@@ -332,7 +401,7 @@ async function renderMyEvents() {
           <div class="mon">${d.toLocaleDateString('de-DE',{month:'short'})}</div>
         </div>
         <div style="flex:1">
-          <div class="my-event-title">${esc(ev.title)}</div>
+          <div class="my-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div>
           <div class="my-event-meta">${esc(ev.calName)}${ev.time ? ' · ' + ev.time : ''}</div>
         </div>
         <span class="role-badge role-member">🎭 ${esc(ev.myRoleName)}</span>
@@ -354,14 +423,32 @@ window.jumpToEvent = (calId, date) => {
 // ── Kalender öffnen ──────────────────────────────────────────
 window.openCalendar = async id => {
   try {
-    activeCalendarData = await DB.getCalendarDetails(id);
+    // Alle Kalender des Users laden (für die Auswahlleiste) – eigene + geteilte
+    const cals = await DB.getCalendars(currentUser.id);
+    allCalendars = cals
+      .filter(c => c.myStatus === 'accepted')
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        isShared: !!c.isShared,
+        readOnly: !!c.readOnly,
+      }));
+
+    // Den angeklickten Kalender laden + cachen
+    const data = await DB.getCalendarDetails(id);
+    loadedCalendars.set(id, data);
+    activeCalendarData = data;
     activeCalendarId   = id;
+    activeCalendarIds  = new Set([id]);
+
     viewYear  = new Date().getFullYear();
     viewMonth = new Date().getMonth();
     selectedDay = null;
-    document.getElementById('calNavTitle').textContent = activeCalendarData.name;
-    document.getElementById('calNavDot').style.background = activeCalendarData.color;
+    updateCalNavTitle();
+    updateNavbarWriteState();
     showScreen('calendar');
+    renderCalendarStrip();
     setCalView('month');
   } catch (err) {
     showToast('Kalender konnte nicht geladen werden: ' + err.message, 'error');
@@ -370,9 +457,137 @@ window.openCalendar = async id => {
 window.goHome = async () => {
   activeCalendarId = null;
   activeCalendarData = null;
+  activeCalendarIds = new Set();
+  loadedCalendars.clear();
   selectedDay = null;
   showScreen('home');
   await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
+};
+
+// Prüft ob der "primäre" Kalender (der Schreib-Ziel-Kalender) read-only ist
+function primaryCalendarIsReadOnly() {
+  const cal = allCalendars.find(c => c.id === activeCalendarId);
+  return !!cal?.readOnly;
+}
+// "+ Termin"-Button und Einstellungen-Button bei read-only ausgrauen
+function updateNavbarWriteState() {
+  const ro = primaryCalendarIsReadOnly();
+  const addBtn = document.querySelector('#screen-calendar .navbar-right .btn-primary');
+  if (addBtn) {
+    addBtn.disabled = ro;
+    addBtn.style.opacity = ro ? '.45' : '';
+    addBtn.style.cursor  = ro ? 'not-allowed' : '';
+    addBtn.title = ro ? 'Dieser Kalender ist nur lesbar (geteilt)' : '';
+  }
+  const gear = document.querySelector('#screen-calendar .navbar-right .nav-icon-btn');
+  if (gear) {
+    gear.disabled = ro;
+    gear.style.opacity = ro ? '.45' : '';
+    gear.style.cursor  = ro ? 'not-allowed' : '';
+  }
+}
+
+// Titel/Farbe in der Navbar aktualisieren
+function updateCalNavTitle() {
+  const titleEl = document.getElementById('calNavTitle');
+  const dotEl   = document.getElementById('calNavDot');
+  if (!titleEl || !dotEl) return;
+  const n = activeCalendarIds.size;
+  if (n === 0) {
+    titleEl.textContent = '';
+    dotEl.style.background = '#ccc';
+  } else if (n === 1) {
+    const cal = allCalendars.find(c => activeCalendarIds.has(c.id)) || activeCalendarData;
+    titleEl.textContent = cal?.name ?? '';
+    dotEl.style.background = cal?.color ?? '#5B5FEF';
+    dotEl.style.backgroundImage = '';
+  } else if (n === allCalendars.length) {
+    titleEl.textContent = 'Alle Kalender';
+    dotEl.style.background = 'conic-gradient(#5B5FEF,#43D9AD,#FFB547,#FF6B6B,#5B5FEF)';
+  } else {
+    titleEl.textContent = `${n} Kalender`;
+    dotEl.style.background = 'conic-gradient(#5B5FEF,#8B8FF8,#43D9AD,#5B5FEF)';
+  }
+}
+
+// Die Auswahlleiste mit allen Kalender-Chips rendern
+function renderCalendarStrip() {
+  const strip = document.getElementById('calendarStrip');
+  if (!strip) return;
+  if (!allCalendars.length) { strip.innerHTML = ''; return; }
+
+  const allActive = activeCalendarIds.size === allCalendars.length;
+  const allChip = `<button class="cal-chip cal-chip-all${allActive?' active':''}" onclick="toggleAllCalendars()" title="Alle Kalender anzeigen">📅 Alle Kalender</button>`;
+  const sep = `<div class="cal-chip-sep"></div>`;
+  const chips = allCalendars.map(c => {
+    const isActive = activeCalendarIds.has(c.id);
+    const roClass  = c.readOnly ? ' cal-chip-ro' : '';
+    const roIcon   = c.readOnly ? '<span class="cal-chip-ro-icon" title="Nur lesbar (geteilter Kalender)">👁</span>' : '';
+    const titleTxt = esc(c.name) + (c.readOnly ? ' · nur lesbar (geteilt)' : '') + (isActive ? ' · aktiv' : '');
+    return `<button class="cal-chip${isActive?' active':''}${roClass}" onclick="toggleCalendar('${c.id}')" title="${titleTxt}">
+      <span class="cal-chip-dot" style="background:${c.color}"></span>${roIcon}${esc(c.name)}
+    </button>`;
+  }).join('');
+  strip.innerHTML = allChip + sep + chips;
+}
+
+// Einen Kalender ein-/ausschalten (Multi-Select)
+window.toggleCalendar = async id => {
+  if (activeCalendarIds.has(id)) {
+    // Letzten Kalender nicht abschalten — sonst wäre nichts mehr zu sehen
+    if (activeCalendarIds.size === 1) return;
+    activeCalendarIds.delete(id);
+  } else {
+    // Ggf. nachladen
+    if (!loadedCalendars.has(id)) {
+      try {
+        const data = await DB.getCalendarDetails(id);
+        loadedCalendars.set(id, data);
+      } catch (err) {
+        showToast('Fehler: ' + err.message, 'error');
+        return;
+      }
+    }
+    activeCalendarIds.add(id);
+  }
+  // activeCalendarId = "primärer" Kalender (erster aktiver) — für Settings/Farbe
+  const firstId = activeCalendarIds.values().next().value;
+  activeCalendarId   = firstId;
+  activeCalendarData = loadedCalendars.get(firstId);
+  updateCalNavTitle();
+  updateNavbarWriteState();
+  renderCalendarStrip();
+  renderCurrentView();
+};
+
+// "Alle Kalender"-Toggle
+window.toggleAllCalendars = async () => {
+  const allActive = activeCalendarIds.size === allCalendars.length;
+  if (allActive) {
+    // Zurück auf nur den primären
+    const keep = activeCalendarId || allCalendars[0]?.id;
+    activeCalendarIds = new Set(keep ? [keep] : []);
+  } else {
+    // Alle laden und aktivieren
+    try {
+      await Promise.all(allCalendars.map(async c => {
+        if (!loadedCalendars.has(c.id)) {
+          loadedCalendars.set(c.id, await DB.getCalendarDetails(c.id));
+        }
+      }));
+    } catch (err) {
+      showToast('Fehler beim Laden: ' + err.message, 'error');
+      return;
+    }
+    activeCalendarIds = new Set(allCalendars.map(c => c.id));
+  }
+  const firstId = activeCalendarIds.values().next().value;
+  activeCalendarId   = firstId;
+  activeCalendarData = loadedCalendars.get(firstId);
+  updateCalNavTitle();
+  updateNavbarWriteState();
+  renderCalendarStrip();
+  renderCurrentView();
 };
 
 // ── Ansicht wechseln ─────────────────────────────────────────
@@ -421,7 +636,24 @@ window.goToday = () => {
 };
 
 // ── Monatsansicht ────────────────────────────────────────────
-function getEvents() { return activeCalendarData?.events ?? []; }
+// Termine über alle aktiven Kalender hinweg sammeln und nach Datum/Zeit sortieren.
+// Jeder Termin wird mit der Farbe seines Kalenders ausgestattet, falls keine
+// eigene Farbe gesetzt ist. So bleiben Termine aus verschiedenen Kalendern
+// in allen Ansichten farblich unterscheidbar.
+function getEvents() {
+  if (!activeCalendarIds.size) return activeCalendarData?.events ?? [];
+  const merged = [];
+  for (const id of activeCalendarIds) {
+    const cal = loadedCalendars.get(id);
+    if (!cal) continue;
+    const calColor = cal.color || '#5B5FEF';
+    for (const ev of (cal.events || [])) {
+      merged.push({ ...ev, color: ev.color || calColor, __calId: id, __calName: cal.name, __calColor: calColor });
+    }
+  }
+  merged.sort((a,b) => (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  return merged;
+}
 
 function renderMonth() {
   const label = document.getElementById('monthLabelText');
@@ -431,11 +663,20 @@ function renderMonth() {
   const lastDay  = new Date(viewYear, viewMonth + 1, 0);
   const startDow = (firstDay.getDay() + 6) % 7; // Mo=0
   const today    = toDateStr(new Date());
+  const todayKW  = isoWeek(new Date());
   const events   = getEvents();
+
+  const grid = document.getElementById('calGrid');
+  grid.classList.add('with-kw');
 
   let html = '';
   let day = 1 - startDow;
   for (let row = 0; row < 6; row++) {
+    // Montag dieser Zeile bestimmen → KW ableiten
+    const mondayDate = new Date(viewYear, viewMonth, day);
+    const kw = isoWeek(mondayDate);
+    const kwCls = (kw === todayKW && mondayDate.getFullYear() === new Date().getFullYear()) ? 'kw-cell today-kw' : 'kw-cell';
+    html += `<div class="${kwCls}"><span class="kw-prefix">KW</span><span class="kw-num">${kw}</span></div>`;
     for (let col = 0; col < 7; col++) {
       const d    = new Date(viewYear, viewMonth, day);
       const ds   = toDateStr(d);
@@ -444,14 +685,14 @@ function renderMonth() {
       const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':''].filter(Boolean).join(' ');
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
         <div class="day-num">${d.getDate()}</div>
-        ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${esc(ev.title)}</div>`).join('')}
+        ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
         ${dayEvs.length > 3 ? `<div class="ev-more">+${dayEvs.length-3} mehr</div>` : ''}
       </div>`;
       day++;
     }
     if (day > lastDay.getDate() + startDow) break;
   }
-  document.getElementById('calGrid').innerHTML = html;
+  grid.innerHTML = html;
   if (selectedDay) renderDayPanel(selectedDay);
 }
 
@@ -465,13 +706,14 @@ function renderDayPanel(ds) {
   const dayEvs  = getEvents().filter(e => e.date === ds || (e.date <= ds && e.date_end >= ds));
   const addBtn  = document.getElementById('dayPanelAdd');
   if (addBtn) addBtn.style.display = 'flex';
-  document.getElementById('dayPanelTitle').textContent = d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('dayPanelTitle').textContent =
+    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
   document.getElementById('dayEvents').innerHTML = dayEvs.length === 0
     ? '<div class="no-events">Keine Termine</div>'
     : dayEvs.map(ev => `<div class="day-event-item" style="border-left-color:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
         <div class="day-event-time">${ev.time ? ev.time.slice(0,5) : '—'}</div>
-        <div>
-          <div class="day-event-title">${esc(ev.title)}</div>
+        <div style="flex:1">
+          <div class="day-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div>
           ${ev.location ? `<div class="day-event-desc">📍 ${esc(ev.location)}</div>` : ''}
         </div>
       </div>`).join('');
@@ -491,17 +733,28 @@ function renderYearView() {
     const today = toDateStr(new Date());
     let cells = '';
     let day = 1 - sdow;
-    for (let i = 0; i < 35; i++) {
-      const d   = new Date(viewYear, m, day);
-      const ds  = toDateStr(d);
-      const valid = d.getMonth() === m;
-      const evs = valid ? events.filter(e => e.date === ds) : [];
-      const isToday = ds === today && valid;
-      cells += `<div class="mini-day${isToday?' today-mini':''}" onclick="valid&&selectDayYear('${ds}')">
-        <div class="mini-day-num">${valid ? d.getDate() : ''}</div>
-        <div class="mini-dot-row">${evs.slice(0,3).map(e=>`<div class="mini-dot" style="background:${e.color||activeCalendarData?.color||'#5B5FEF'}"></div>`).join('')}</div>
-      </div>`;
-      day++;
+    for (let row = 0; row < 5; row++) {
+      // KW-Nummer aus dem Montag dieser Zeile
+      const rowMonday = new Date(viewYear, m, day);
+      cells += `<div class="mini-kw">KW&nbsp;${isoWeek(rowMonday)}</div>`;
+      for (let col = 0; col < 7; col++) {
+        const d   = new Date(viewYear, m, day);
+        const ds  = toDateStr(d);
+        const valid = d.getMonth() === m;
+        const evs = valid ? events.filter(e => e.date === ds) : [];
+        const isToday = ds === today && valid;
+        cells += `<div class="mini-day${isToday?' today-mini':''}" onclick="valid&&selectDayYear('${ds}')">
+          <div class="mini-day-num">${valid ? d.getDate() : ''}</div>
+          <div class="mini-dot-row">${evs.slice(0,3).map(e=>{
+            const rs = getRoleStatus(e);
+            const baseColor = e.color||activeCalendarData?.color||'#5B5FEF';
+            const cls = rs === 'none' ? 'mini-dot' : `mini-dot mini-dot-role ${rs}`;
+            const bg  = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : baseColor;
+            return `<div class="${cls}" style="background:${bg}"></div>`;
+          }).join('')}</div>
+        </div>`;
+        day++;
+      }
     }
     html += `<div class="mini-month">
       <div class="mini-month-title">${mn}</div>
@@ -528,6 +781,7 @@ function renderWeekView() {
   const start  = new Date(days[0]+'T00:00:00');
   const end    = new Date(days[6]+'T00:00:00');
   document.getElementById('monthLabelText').textContent =
+    'KW ' + isoWeek(start) + ' · ' +
     start.toLocaleDateString('de-DE',{day:'numeric',month:'short'}) + ' – ' +
     end.toLocaleDateString('de-DE',{day:'numeric',month:'short',year:'numeric'});
 
@@ -554,7 +808,7 @@ function renderWeekView() {
       const [hh,mm] = (ev.time||'00:00').split(':').map(Number);
       const top = (hh*60+mm)/60*H;
       const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); return ((eh*60+em)-(hh*60+mm))/60*H; })() : H;
-      return `<div class="week-event-block" style="top:${top}px;height:${Math.max(dur,20)}px;left:4px;right:4px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">${esc(ev.title)}</div>`;
+      return `<div class="week-event-block" style="top:${top}px;height:${Math.max(dur,20)}px;left:4px;right:4px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`;
     }).join('');
     return `<div class="week-day-col" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
   }).join('');
@@ -566,8 +820,10 @@ function renderDayView() {
   const d      = new Date(ds+'T00:00:00');
   const events = getEvents().filter(e => e.date === ds);
   const H      = 60;
-  document.getElementById('monthLabelText').textContent = d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-  document.getElementById('dayViewHeader').textContent = d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('monthLabelText').textContent =
+    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  document.getElementById('dayViewHeader').textContent =
+    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
 
   let timecol = '';
   for (let h = 0; h < 24; h++) timecol += `<div class="day-view-time-slot">${String(h).padStart(2,'0')}:00</div>`;
@@ -581,7 +837,7 @@ function renderDayView() {
     const top = (hh*60+mm)/60*H;
     const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); return ((eh*60+em)-(hh*60+mm))/60*H; })() : H;
     return `<div class="day-event-timed" style="top:${top}px;height:${Math.max(dur,28)}px;left:8px;right:8px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
-      ${esc(ev.title)}${ev.time?' · '+ev.time.slice(0,5):''}
+      ${roleLightHTML(ev,'lg')}${esc(ev.title)}${ev.time?' · '+ev.time.slice(0,5):''}
     </div>`;
   }).join('');
   const now  = new Date();
@@ -596,19 +852,31 @@ function renderMineView() {
   const events = getEvents()
     .filter(e => e.date >= today)
     .sort((a,b) => (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
-  const myRoleEvs = events.filter(e =>
-    (e.event_roles||[]).some(r => r.assigned_user_id === currentUser?.id)
-  );
-  document.getElementById('mineViewLabel').textContent = myRoleEvs.length + ' bevorstehende Termine mit meiner Rolle';
-  document.getElementById('mineViewList').innerHTML = myRoleEvs.map(ev => {
+  // "Meine"-Ansicht: Termine, in die ich involviert bin
+  //   – Termine ohne Rollen gelten allen Mitgliedern (also auch mir)
+  //   – Termine mit Rollen nur, wenn mir eine Rolle zugewiesen ist
+  const mineEvs = events.filter(e => {
+    const roles = e.event_roles || [];
+    if (roles.length === 0) return true;
+    return roles.some(r => r.assigned_user_id === currentUser?.id);
+  });
+  document.getElementById('mineViewLabel').textContent =
+    mineEvs.length + ' bevorstehende Termine für mich';
+  document.getElementById('mineViewList').innerHTML = mineEvs.map(ev => {
     const d = new Date(ev.date+'T00:00:00');
-    const role = (ev.event_roles||[]).find(r => r.assigned_user_id === currentUser?.id);
+    const roles = ev.event_roles || [];
+    const myRole = roles.find(r => r.assigned_user_id === currentUser?.id);
+    const badge = myRole
+      ? `<span class="role-badge role-member">🎭 ${esc(myRole.name)}</span>`
+      : (roles.length === 0
+          ? `<span class="role-badge" style="background:#EEF2FF;color:#5B5FEF">👥 Alle</span>`
+          : '');
     return `<div class="my-event-row" style="border-left-color:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
       <div class="my-event-date-badge"><div class="day">${d.getDate()}</div><div class="mon">${d.toLocaleDateString('de-DE',{month:'short'})}</div></div>
-      <div style="flex:1"><div class="my-event-title">${esc(ev.title)}</div><div class="my-event-meta">${ev.time?ev.time.slice(0,5):''}</div></div>
-      ${role ? `<span class="role-badge role-member">🎭 ${esc(role.name)}</span>` : ''}
+      <div style="flex:1"><div class="my-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div><div class="my-event-meta">${ev.time?ev.time.slice(0,5):''}</div></div>
+      ${badge}
     </div>`;
-  }).join('') || '<div class="no-events">Keine Termine mit deiner Rolle</div>';
+  }).join('') || '<div class="no-events">Keine anstehenden Termine für dich</div>';
 }
 
 // ── Termin-Modal ─────────────────────────────────────────────
@@ -621,6 +889,10 @@ function buildEventColorPicker(currentColor) {
 }
 
 window.openAddEvent = () => {
+  if (primaryCalendarIsReadOnly()) {
+    showToast('Dieser Kalender ist nur lesbar (geteilt). Wechsle zu einem deiner eigenen Kalender, um Termine anzulegen.', 'error');
+    return;
+  }
   editingEventId = null;
   document.getElementById('eventModalTitle').textContent = 'Neuer Termin';
   document.getElementById('ev-title').value       = '';
@@ -634,6 +906,7 @@ window.openAddEvent = () => {
   buildEventColorPicker(activeCalendarData?.color || CAL_COLORS[0]);
   currentRoles = [];
   renderRolesList();
+  document.getElementById('evShareSection').style.display = 'none';
   document.getElementById('eventModal').classList.add('open');
   setTimeout(() => document.getElementById('ev-title').focus(), 100);
 };
@@ -641,8 +914,11 @@ window.openAddEvent = () => {
 window.openEventModal = id => {
   const ev = getEvents().find(e => e.id === id);
   if (!ev) return;
-  editingEventId = id;
-  document.getElementById('eventModalTitle').textContent = 'Termin bearbeiten';
+  // Ist der Termin aus einem nur-lesbaren (geteilten) Kalender?
+  const evCal = allCalendars.find(c => c.id === (ev.__calId || ev.calendar_id));
+  const readOnly = !!evCal?.readOnly;
+  editingEventId = readOnly ? null : id;
+  document.getElementById('eventModalTitle').textContent = readOnly ? 'Termin ansehen (nur lesbar)' : 'Termin bearbeiten';
   document.getElementById('ev-title').value       = ev.title;
   document.getElementById('ev-date').value        = ev.date;
   document.getElementById('ev-date-end').value    = ev.date_end || '';
@@ -650,11 +926,95 @@ window.openEventModal = id => {
   document.getElementById('ev-time-end').value    = ev.time_end || '';
   document.getElementById('ev-desc').value        = ev.description || '';
   document.getElementById('ev-location').value    = ev.location || '';
-  document.getElementById('evDeleteBtn').style.display = 'inline-flex';
+  document.getElementById('evDeleteBtn').style.display = readOnly ? 'none' : 'inline-flex';
   buildEventColorPicker(ev.color || activeCalendarData?.color || CAL_COLORS[0]);
   currentRoles = (ev.event_roles || []).map(r => ({ name: r.name, assignedUserId: r.assigned_user_id }));
   renderRolesList();
-  document.getElementById('eventModal').classList.add('open');
+  // Alle Eingabefelder + Speichern-Button entsprechend sperren
+  const modal = document.getElementById('eventModal');
+  modal.querySelectorAll('input, textarea').forEach(el => { el.disabled = readOnly; });
+  const saveBtn = modal.querySelector('.modal-actions .btn-primary');
+  if (saveBtn) { saveBtn.disabled = readOnly; saveBtn.style.opacity = readOnly ? '.4' : ''; saveBtn.style.cursor = readOnly ? 'not-allowed' : ''; }
+  // Sharing-Abschnitt nur für eigene (nicht-read-only) Termine des aktuellen Nutzers
+  const shareSec = document.getElementById('evShareSection');
+  if (shareSec) {
+    if (readOnly) {
+      shareSec.style.display = 'none';
+    } else {
+      shareSec.style.display = 'block';
+      refreshEventShareUI(id);
+    }
+  }
+  modal.classList.add('open');
+};
+
+// Termin-Freigaben UI aufbauen (Liste + Auswahl)
+async function refreshEventShareUI(eventId) {
+  const list = document.getElementById('evShareList');
+  const sel  = document.getElementById('evShareTarget');
+  if (!list || !sel) return;
+  list.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Lädt...</div>';
+  sel.innerHTML = '';
+  try {
+    const [shares, cals] = await Promise.all([
+      DB.getEventSharesOf(eventId),
+      DB.getCalendars(currentUser.id),
+    ]);
+    // Liste aktueller Freigaben
+    if (!shares.length) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Noch nicht geteilt</div>';
+    } else {
+      list.innerHTML = shares.map(s => {
+        const label = s.target_user_id
+          ? `👤 ${esc((s.profiles?.firstname ?? '') + ' ' + (s.profiles?.lastname ?? ''))} (privater Kalender)`
+          : `📅 ${esc(s.calendars?.name ?? 'Kalender')}`;
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px;font-size:13px">
+          <span style="flex:1">${label}</span>
+          <button type="button" class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="removeEventShare('${s.id}','${eventId}')">✕</button>
+        </div>`;
+      }).join('');
+    }
+    // Auswahl: Team-Kalender (akzeptierte, nicht readOnly, nicht privat, nicht der Quell-Kalender)
+    // + Nutzer (alle anderen Profile)
+    const ev = getEvents().find(e => e.id === eventId);
+    const srcCal = ev?.__calId || ev?.calendar_id;
+    const optsCal = cals
+      .filter(c => !c.readOnly && !c.is_personal && c.myStatus === 'accepted' && c.id !== srcCal)
+      .map(c => `<option value="cal:${c.id}">📅 ${esc(c.name)}</option>`);
+    const optsUser = (allProfiles || [])
+      .filter(p => p.id !== currentUser.id)
+      .map(p => `<option value="usr:${p.id}">👤 ${esc((p.firstname ?? '') + ' ' + (p.lastname ?? ''))}</option>`);
+    sel.innerHTML = `<option value="">– Ziel wählen –</option>` + optsCal.join('') + optsUser.join('');
+  } catch (err) {
+    list.innerHTML = `<div style="color:var(--accent);font-size:12px">Fehler: ${esc(err.message)}</div>`;
+  }
+}
+
+window.addEventShareFromModal = async () => {
+  const sel = document.getElementById('evShareTarget');
+  const val = sel?.value;
+  if (!val || !editingEventId) return;
+  const [kind, id] = val.split(':');
+  try {
+    if (kind === 'cal') {
+      await DB.shareEventWithCalendar(editingEventId, id, currentUser.id);
+    } else if (kind === 'usr') {
+      await DB.shareEventWithUser(editingEventId, id, currentUser.id);
+    }
+    showToast('Freigabe gespeichert.');
+    refreshEventShareUI(editingEventId);
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
+window.removeEventShare = async (shareId, eventId) => {
+  try {
+    await DB.unshareEvent(shareId);
+    refreshEventShareUI(eventId);
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
 };
 window.closeEventModal = () => {
   document.getElementById('eventModal').classList.remove('open');
@@ -687,8 +1047,8 @@ window.saveEvent = async () => {
       showToast('Termin erstellt!');
     }
     closeEventModal();
-    // Kalender neu laden und Ansicht aktualisieren
-    activeCalendarData = await DB.getCalendarDetails(activeCalendarId);
+    // Alle aktiven Kalender neu laden und Ansicht aktualisieren
+    await refreshActiveCalendars();
     renderCurrentView();
     await renderMyEvents();
   } catch (err) {
@@ -696,13 +1056,23 @@ window.saveEvent = async () => {
   }
 };
 
+// Alle aktuell sichtbaren Kalender aus der DB neu laden und den Cache updaten
+async function refreshActiveCalendars() {
+  const ids = Array.from(activeCalendarIds);
+  await Promise.all(ids.map(async id => {
+    const data = await DB.getCalendarDetails(id);
+    loadedCalendars.set(id, data);
+    if (id === activeCalendarId) activeCalendarData = data;
+  }));
+}
+
 window.deleteEvent = async () => {
   if (!editingEventId) return;
   if (!confirm('Termin wirklich löschen?')) return;
   try {
     await DB.deleteEvent(editingEventId);
     closeEventModal();
-    activeCalendarData = await DB.getCalendarDetails(activeCalendarId);
+    await refreshActiveCalendars();
     renderCurrentView();
     showToast('Termin gelöscht.');
   } catch (err) {
@@ -776,7 +1146,7 @@ function renderSettings(tab) {
       `<div class="color-dot ${c===(cal?.color??'')?'selected':''}" style="background:${c}" onclick="selectSettingsColor('${c}',this)"></div>`
     ).join('');
     selectedColor = cal?.color ?? CAL_COLORS[0];
-  } else {
+  } else if (tab === 'members') {
     const myRole = members.find(m => m.user_id === currentUser?.id)?.role;
     const canManage = ['owner','admin'].includes(myRole);
     body.innerHTML = `
@@ -795,8 +1165,118 @@ function renderSettings(tab) {
           </div>`;
         }).join('')}
       </div>`;
+  } else if (tab === 'sharing') {
+    renderSharingTab();
   }
 }
+
+// Sharing-Tab: zeigt wem dieser Kalender bereits gezeigt wird und erlaubt
+// das Freigeben an weitere Kalender, in denen der aktuelle Nutzer Mitglied ist.
+async function renderSharingTab() {
+  const body  = document.getElementById('settingsBody');
+  const cal   = activeCalendarData;
+  const myRole = (cal?.members ?? []).find(m => m.user_id === currentUser?.id)?.role;
+  const canShare = ['owner','admin'].includes(myRole);
+
+  body.innerHTML = `
+    <div class="settings-card">
+      <div class="settings-card-title">Kalender teilen</div>
+      <div style="font-size:13px;color:var(--text-sub);margin-bottom:14px;line-height:1.5">
+        Teile diesen Kalender mit einem anderen Kalender <strong>oder</strong> einem einzelnen Nutzer.
+        Empfänger dürfen die Termine <strong>nur lesen</strong>. An Nutzer freigegebene Kalender
+        erscheinen im privaten Kalender des Empfängers.
+      </div>
+      <div id="sharingList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        <div style="color:var(--text-muted);font-size:13px">Lädt...</div>
+      </div>
+      ${canShare ? `
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="shareTargetSelect" class="role-name-select" style="flex:1;padding:9px 12px"></select>
+          <button class="btn-primary" style="padding:9px 16px" onclick="shareWithSelected()">＋ Freigeben</button>
+        </div>
+      ` : `<div style="font-size:13px;color:var(--text-muted)">Nur Admins oder der Ersteller können Freigaben verwalten.</div>`}
+    </div>`;
+
+  try {
+    const [shares, allCals] = await Promise.all([
+      DB.getCalendarSharesOf(settingsCalId),
+      DB.getCalendars(currentUser.id),
+    ]);
+    const listEl = document.getElementById('sharingList');
+    if (!shares.length) {
+      listEl.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Dieser Kalender ist noch mit niemandem geteilt.</div>`;
+    } else {
+      listEl.innerHTML = shares.map(s => {
+        const isUser = !!s.target_user_id;
+        const c = s.calendars;
+        const p = s.profiles;
+        const label = isUser
+          ? `👤 ${esc(((p?.firstname ?? '') + ' ' + (p?.lastname ?? '')).trim() || 'Nutzer')}`
+          : `📅 ${esc(c?.name || 'Kalender')}`;
+        const sub   = isUser
+          ? 'erscheint im privaten Kalender dieses Nutzers'
+          : 'Mitglieder dieses Kalenders können lesen';
+        const dot   = isUser ? '#5B5FEF' : (c?.color || '#999');
+        return `<div class="member-row" style="padding:10px 12px;background:var(--bg);border-radius:var(--radius-sm);border-bottom:none">
+          <div class="navbar-cal-dot" style="background:${dot};width:14px;height:14px;border-radius:50%"></div>
+          <div class="member-info" style="flex:1">
+            <div class="name">${label}</div>
+            <div class="email">${sub}</div>
+          </div>
+          ${canShare ? `<button class="btn-danger" style="padding:5px 10px;font-size:11px" onclick="unshareCalendarUI('${s.id}')">✕ Entfernen</button>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    if (canShare) {
+      const sel = document.getElementById('shareTargetSelect');
+      const alreadyCal  = new Set(shares.filter(s => s.target_calendar_id).map(s => s.target_calendar_id));
+      const alreadyUser = new Set(shares.filter(s => s.target_user_id).map(s => s.target_user_id));
+      const calCands = allCals.filter(c =>
+        c.myStatus === 'accepted' && !c.isShared && !c.is_personal && c.id !== settingsCalId && !alreadyCal.has(c.id)
+      );
+      const userCands = (allProfiles || []).filter(p =>
+        p.id !== currentUser.id && !alreadyUser.has(p.id)
+      );
+      const optsCal  = calCands.map(c => `<option value="cal:${c.id}">📅 ${esc(c.name)}</option>`).join('');
+      const optsUser = userCands.map(p => `<option value="usr:${p.id}">👤 ${esc(((p.firstname ?? '') + ' ' + (p.lastname ?? '')).trim())}</option>`).join('');
+      sel.innerHTML = `<option value="">– Ziel wählen –</option>` + optsCal + optsUser;
+      sel.disabled = !optsCal && !optsUser;
+    }
+  } catch (err) {
+    document.getElementById('sharingList').innerHTML =
+      `<div style="color:var(--accent);font-size:13px">Fehler beim Laden: ${esc(err.message)}</div>`;
+  }
+}
+
+window.shareWithSelected = async () => {
+  const sel = document.getElementById('shareTargetSelect');
+  const val = sel?.value;
+  if (!val) return;
+  const [kind, id] = val.split(':');
+  try {
+    if (kind === 'cal') {
+      await DB.shareCalendarWith(settingsCalId, id, currentUser.id);
+    } else if (kind === 'usr') {
+      await DB.shareCalendarWithUser(settingsCalId, id, currentUser.id);
+    }
+    showToast('Kalender freigegeben.');
+    renderSharingTab();
+  } catch (err) {
+    showToast('Fehler beim Freigeben: ' + err.message, 'error');
+  }
+};
+
+window.unshareCalendarUI = async shareId => {
+  if (!confirm('Freigabe wirklich zurückziehen?')) return;
+  try {
+    await DB.unshareCalendar(shareId);
+    showToast('Freigabe entfernt.');
+    renderSharingTab();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
 
 window.selectSettingsColor = (color, el) => {
   selectedColor = color;
@@ -810,9 +1290,14 @@ window.saveSettings = async () => {
   if (!name) return showToast('Name darf nicht leer sein.', 'error');
   try {
     await DB.updateCalendar(settingsCalId, { name, description: desc, color: selectedColor });
-    activeCalendarData = await DB.getCalendarDetails(settingsCalId);
-    document.getElementById('calNavTitle').textContent = activeCalendarData.name;
-    document.getElementById('calNavDot').style.background = activeCalendarData.color;
+    const fresh = await DB.getCalendarDetails(settingsCalId);
+    loadedCalendars.set(settingsCalId, fresh);
+    if (settingsCalId === activeCalendarId) activeCalendarData = fresh;
+    // Auch die Kalender-Liste für die Auswahlleiste aktualisieren
+    const idx = allCalendars.findIndex(c => c.id === settingsCalId);
+    if (idx >= 0) allCalendars[idx] = { id: fresh.id, name: fresh.name, color: fresh.color };
+    updateCalNavTitle();
+    renderCalendarStrip();
     closeSettings();
     showToast('Einstellungen gespeichert!');
   } catch (err) {
@@ -849,6 +1334,7 @@ async function inviteByEmail(email) {
     }
     await DB.inviteMember(activeCalendarId, profile.id);
     activeCalendarData = await DB.getCalendarDetails(activeCalendarId);
+    loadedCalendars.set(activeCalendarId, activeCalendarData);
     renderSettings('members');
     showToast('Einladung gesendet!');
   } catch (err) {
@@ -861,6 +1347,7 @@ window.removeMemberUI = async userId => {
   try {
     await DB.removeMember(activeCalendarId, userId);
     activeCalendarData = await DB.getCalendarDetails(activeCalendarId);
+    loadedCalendars.set(activeCalendarId, activeCalendarData);
     renderSettings('members');
     showToast('Mitglied entfernt.');
   } catch (err) {
