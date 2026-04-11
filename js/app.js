@@ -771,11 +771,13 @@ window.selectDayYear = ds => {
 };
 
 // ── Wochenansicht ────────────────────────────────────────────
+const CAL_START_HOUR = 6;   // Tag beginnt um 06:00
+const CAL_END_HOUR   = 19;  // Tag endet um 19:00 (untere Kante)
 function renderWeekView() {
   if (!viewWeek) viewWeek = getMondayOf(toDateStr(new Date()));
   const today  = toDateStr(new Date());
   const events = getEvents();
-  const HOURS  = 24;
+  const HOURS  = CAL_END_HOUR - CAL_START_HOUR; // 13 Slots (06..18)
   const H      = 48;
   const days   = Array.from({length:7}, (_,i) => dayAddDays(viewWeek, i));
   const start  = new Date(days[0]+'T00:00:00');
@@ -796,22 +798,54 @@ function renderWeekView() {
 
   let timecol = '';
   for (let h = 0; h < HOURS; h++) {
-    timecol += `<div class="week-time-slot">${String(h).padStart(2,'0')}:00</div>`;
+    timecol += `<div class="week-time-slot">${String(CAL_START_HOUR+h).padStart(2,'0')}:00</div>`;
   }
+  timecol += `<div class="week-time-slot week-time-slot-end">${String(CAL_END_HOUR).padStart(2,'0')}:00</div>`;
   document.getElementById('weekTimeCol').innerHTML = timecol;
 
-  document.getElementById('weekDaysGrid').style.gridTemplateColumns = `repeat(7,1fr)`;
-  document.getElementById('weekDaysGrid').innerHTML = days.map(ds => {
+  // Helfer: kompakte Mini-Pille für Früh/Spät-Zeile
+  const miniPill = ev => {
+    const bg = ev.color||activeCalendarData?.color||'#5B5FEF';
+    const t  = (ev.time||'').slice(0,5);
+    return `<div class="week-mini-pill" style="background:${bg}" onclick="openEventModal('${ev.id}')" title="${esc(ev.title)} ${t}">${roleLightHTML(ev)}<span class="wmp-t">${t}</span> ${esc(ev.title)}</div>`;
+  };
+
+  // Früh- und Spät-Zeilen (fixiert) + Haupt-Grid
+  const earlyRow = document.getElementById('weekEarlyDays');
+  const lateRow  = document.getElementById('weekLateDays');
+  if (earlyRow) earlyRow.style.gridTemplateColumns = `repeat(7,1fr)`;
+  if (lateRow)  lateRow.style.gridTemplateColumns  = `repeat(7,1fr)`;
+
+  let earlyHtml = '', lateHtml = '', anyEarly = false, anyLate = false;
+  const mainCols = days.map(ds => {
     const dayEvs = events.filter(e => e.date === ds && e.time);
-    const lines  = Array.from({length:HOURS}, (_,h) => `<div class="week-hour-line" style="top:${h*H}px"></div>`).join('');
-    const blocks = dayEvs.map(ev => {
+    const earlyEvs = dayEvs.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h < CAL_START_HOUR; });
+    const lateEvs  = dayEvs.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h >= CAL_END_HOUR; });
+    const mainEvs  = dayEvs.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h >= CAL_START_HOUR && h < CAL_END_HOUR; });
+    if (earlyEvs.length) anyEarly = true;
+    if (lateEvs.length)  anyLate  = true;
+    const todayCls = ds === today ? ' today-col' : '';
+    earlyHtml += `<div class="week-extra-cell${todayCls}">${earlyEvs.map(miniPill).join('')}</div>`;
+    lateHtml  += `<div class="week-extra-cell${todayCls}">${lateEvs.map(miniPill).join('')}</div>`;
+    const lines  = Array.from({length:HOURS+1}, (_,h) => `<div class="week-hour-line" style="top:${h*H}px"></div>`).join('');
+    const blocks = mainEvs.map(ev => {
       const [hh,mm] = (ev.time||'00:00').split(':').map(Number);
-      const top = (hh*60+mm)/60*H;
-      const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); return ((eh*60+em)-(hh*60+mm))/60*H; })() : H;
+      const top = ((hh-CAL_START_HOUR)*60+mm)/60*H;
+      const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); const d=((eh*60+em)-(hh*60+mm))/60*H; return Math.min(d, (HOURS*H)-top); })() : H;
       return `<div class="week-event-block" style="top:${top}px;height:${Math.max(dur,20)}px;left:4px;right:4px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`;
     }).join('');
-    return `<div class="week-day-col" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
+    return `<div class="week-day-col${todayCls}" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
   }).join('');
+
+  if (earlyRow) earlyRow.innerHTML = earlyHtml;
+  if (lateRow)  lateRow.innerHTML  = lateHtml;
+  const earlyContainer = document.getElementById('weekEarlyRow');
+  const lateContainer  = document.getElementById('weekLateRow');
+  if (earlyContainer) earlyContainer.style.display = anyEarly ? 'flex' : 'none';
+  if (lateContainer)  lateContainer.style.display  = anyLate  ? 'flex' : 'none';
+
+  document.getElementById('weekDaysGrid').style.gridTemplateColumns = `repeat(7,1fr)`;
+  document.getElementById('weekDaysGrid').innerHTML = mainCols;
 }
 
 // ── Tagesansicht ─────────────────────────────────────────────
@@ -819,6 +853,7 @@ function renderDayView() {
   const ds     = selectedDay || toDateStr(new Date());
   const d      = new Date(ds+'T00:00:00');
   const events = getEvents().filter(e => e.date === ds);
+  const HOURS  = CAL_END_HOUR - CAL_START_HOUR; // 13 Slots (06..18)
   const H      = 60;
   document.getElementById('monthLabelText').textContent =
     'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -826,23 +861,49 @@ function renderDayView() {
     'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
 
   let timecol = '';
-  for (let h = 0; h < 24; h++) timecol += `<div class="day-view-time-slot">${String(h).padStart(2,'0')}:00</div>`;
+  for (let h = 0; h < HOURS; h++) timecol += `<div class="day-view-time-slot">${String(CAL_START_HOUR+h).padStart(2,'0')}:00</div>`;
+  timecol += `<div class="day-view-time-slot day-view-time-slot-end">${String(CAL_END_HOUR).padStart(2,'0')}:00</div>`;
   document.getElementById('dayViewTimecol').innerHTML = timecol;
 
   const col  = document.getElementById('dayViewEventsCol');
   col.style.position = 'relative';
-  col.style.height   = 24*H + 'px';
-  const blocks = events.filter(e => e.time).map(ev => {
+  col.style.height   = HOURS*H + 'px';
+
+  const timed    = events.filter(e => e.time);
+  const earlyEvs = timed.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h < CAL_START_HOUR; });
+  const lateEvs  = timed.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h >= CAL_END_HOUR; });
+  const mainEvs  = timed.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h >= CAL_START_HOUR && h < CAL_END_HOUR; });
+
+  const miniItem = ev => {
+    const bg = ev.color||activeCalendarData?.color||'#5B5FEF';
+    const t  = (ev.time||'').slice(0,5);
+    return `<div class="day-mini-item" style="background:${bg}" onclick="openEventModal('${ev.id}')">${roleLightHTML(ev,'lg')}<span class="dmi-t">${t}</span><span class="dmi-title">${esc(ev.title)}</span></div>`;
+  };
+  const earlyEl = document.getElementById('dayEarlyItems');
+  const lateEl  = document.getElementById('dayLateItems');
+  if (earlyEl) earlyEl.innerHTML = earlyEvs.map(miniItem).join('');
+  if (lateEl)  lateEl.innerHTML  = lateEvs.map(miniItem).join('');
+  const earlyRow = document.getElementById('dayEarlyRow');
+  const lateRow  = document.getElementById('dayLateRow');
+  if (earlyRow) earlyRow.style.display = earlyEvs.length ? 'flex' : 'none';
+  if (lateRow)  lateRow.style.display  = lateEvs.length  ? 'flex' : 'none';
+
+  const blocks = mainEvs.map(ev => {
     const [hh,mm] = (ev.time||'00:00').split(':').map(Number);
-    const top = (hh*60+mm)/60*H;
-    const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); return ((eh*60+em)-(hh*60+mm))/60*H; })() : H;
+    const top = ((hh-CAL_START_HOUR)*60+mm)/60*H;
+    const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); const d=((eh*60+em)-(hh*60+mm))/60*H; return Math.min(d, (HOURS*H)-top); })() : H;
     return `<div class="day-event-timed" style="top:${top}px;height:${Math.max(dur,28)}px;left:8px;right:8px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
       ${roleLightHTML(ev,'lg')}${esc(ev.title)}${ev.time?' · '+ev.time.slice(0,5):''}
     </div>`;
   }).join('');
   const now  = new Date();
-  const nowT = (now.getHours()*60+now.getMinutes())/60*H;
-  col.innerHTML = blocks + (ds === toDateStr(now) ? `<div class="day-now-line" style="top:${nowT}px"></div>` : '');
+  const nowH = now.getHours();
+  let nowLine = '';
+  if (ds === toDateStr(now) && nowH >= CAL_START_HOUR && nowH < CAL_END_HOUR) {
+    const nowT = ((nowH-CAL_START_HOUR)*60+now.getMinutes())/60*H;
+    nowLine = `<div class="day-now-line" style="top:${nowT}px"></div>`;
+  }
+  col.innerHTML = blocks + nowLine;
 }
 
 // ── "Meine Termine"-Ansicht ───────────────────────────────────
