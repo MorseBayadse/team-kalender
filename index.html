@@ -53,6 +53,7 @@
   <nav class="navbar">
     <div class="navbar-left"><div class="navbar-logo">📅</div><span class="navbar-title">Team-Kalender</span></div>
     <div class="navbar-right" style="position:relative">
+      <button class="nav-icon-btn" onclick="appReload()" title="Aktualisieren">🔄</button>
       <button class="avatar-btn" id="avatarBtn" onclick="toggleDropdown()"><span id="navAvatar"></span></button>
       <div class="avatar-dropdown" id="avatarDropdown">
         <div class="dropdown-header"><div class="name" id="dropdownName"></div><div style="font-size:12px;color:var(--text-muted)" id="dropdownEmail"></div></div>
@@ -88,6 +89,7 @@
     </div>
     <div class="navbar-right">
       <button class="btn-primary" onclick="openAddEvent()">＋ Termin</button>
+      <button class="nav-icon-btn" onclick="appReload()" title="Aktualisieren">🔄</button>
       <button class="nav-icon-btn" onclick="openCalSettings()" title="Kalender-Einstellungen">⚙️</button>
     </div>
   </nav>
