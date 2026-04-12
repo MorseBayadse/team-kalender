@@ -910,14 +910,21 @@ function renderDayPanel(ds) {
 // ── Jahresansicht ────────────────────────────────────────────
 // ── Year-view zoom detection ────────────────────────────────
 let yearZoomObserver = null;
+let yearZoomVVHandler = null;
 function setupYearZoom() {
   const grid = document.getElementById('yearGrid');
   if (!grid) return;
   if (yearZoomObserver) yearZoomObserver.disconnect();
+  if (yearZoomVVHandler && window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', yearZoomVVHandler);
+    window.visualViewport.removeEventListener('scroll', yearZoomVVHandler);
+  }
   function checkZoom() {
     const md = grid.querySelector('.mini-day:not(.mini-day-empty)');
     if (!md) return;
-    const w = md.getBoundingClientRect().width;
+    const cssW = md.getBoundingClientRect().width;
+    const scale = window.visualViewport?.scale || 1;
+    const w = cssW * scale;
     let level;
     if (w >= 55) level = 'full';
     else if (w >= 28) level = 'bars';
@@ -926,6 +933,11 @@ function setupYearZoom() {
   }
   yearZoomObserver = new ResizeObserver(checkZoom);
   yearZoomObserver.observe(grid);
+  if (window.visualViewport) {
+    yearZoomVVHandler = checkZoom;
+    window.visualViewport.addEventListener('resize', yearZoomVVHandler);
+    window.visualViewport.addEventListener('scroll', yearZoomVVHandler);
+  }
   requestAnimationFrame(checkZoom);
 }
 
