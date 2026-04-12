@@ -1126,7 +1126,6 @@ function renderDayView() {
   col.classList.toggle('is-sun-hol', isSunOrHol(ds));
   col.classList.toggle('sem-summer', semD?.type === 'summer');
   col.classList.toggle('sem-winter', semD?.type === 'winter');
-  const dayHdrEl = document.getElementById('dayViewHeader');
   if (dayHdrEl) dayHdrEl.classList.toggle('is-sun-hol', isSunOrHol(ds));
   if (dayHdrEl) {
     dayHdrEl.classList.toggle('sem-summer', semD?.type === 'summer');
