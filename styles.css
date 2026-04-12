@@ -81,17 +81,40 @@
 .mini-wd-row { display:grid; grid-template-columns:repeat(7,1fr); height:12px; }
 .mini-wd { font-size:8px; font-weight:700; color:var(--text-muted); text-align:center; line-height:12px; }
 .mini-wd-sun { color:#DC2626; }
-.mini-day-grid { display:grid; grid-template-columns:repeat(7,1fr); flex:1; gap:0; }
-.mini-month .mini-day { aspect-ratio:auto; min-height:18px; font-size:11px; border-radius:2px; position:relative; padding:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.mini-day-grid { display:grid; grid-template-columns:repeat(7,1fr); flex:1; gap:1px; }
+/* Mini-day: flex-column layout with event area below number */
+.mini-month .mini-day { aspect-ratio:auto; min-height:22px; font-size:11px; border-radius:2px; position:relative; padding:1px 1px 0; display:flex; flex-direction:column; align-items:stretch; cursor:pointer; overflow:hidden; }
 .mini-month .mini-day-empty { cursor:default; }
-.mini-month .mini-day-num { font-size:12px; font-weight:700; line-height:1; }
+.mini-month .mini-day-num { font-size:10px; font-weight:700; line-height:1; text-align:center; flex-shrink:0; }
 .mini-month .mini-day.today-mini { background:var(--primary); color:#fff; }
 .mini-month .mini-day.today-mini .mini-day-num { color:#fff; }
 .mini-month .mini-day.is-sun-hol { background:#FEECEC; }
 .mini-month .mini-day.is-sun-hol.today-mini { background:var(--primary); }
-.mini-month .mini-day-dot { position:absolute; bottom:1px; left:50%; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; }
+/* Event content area below day number */
+.mini-day-content { display:flex; flex-direction:column; gap:1px; flex:1; min-height:0; overflow:hidden; align-items:center; }
+/* ── Zoom-level event representations ── */
+/* Dots (default / zoomed out) */
+.mev-dot { width:4px; height:4px; border-radius:50%; flex-shrink:0; }
+.mev-bar { display:none; width:90%; height:3px; border-radius:1px; flex-shrink:0; }
+.mev-text { display:none; width:100%; font-size:7px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 1px; border-left:2px solid transparent; color:var(--text-sub); flex-shrink:0; }
+.mev-more { font-size:6px; color:var(--text-muted); border-left:none !important; }
+/* Bars level */
+[data-zoom-level="bars"] .mev-dot { display:none; }
+[data-zoom-level="bars"] .mev-bar { display:block; }
+[data-zoom-level="bars"] .mev-text { display:none; }
+/* Full text level */
+[data-zoom-level="full"] .mev-dot { display:none; }
+[data-zoom-level="full"] .mev-bar { display:none; }
+[data-zoom-level="full"] .mev-text { display:block; }
+/* Semester dots/bars/text in year view */
+.sem-dot-start { background:#16A34A; }
+.sem-dot-end   { background:#EF4444; }
+.sem-bar-start { background:#16A34A; }
+.sem-bar-end   { background:#EF4444; }
+.sem-text-start { color:#16A34A; font-weight:700; border-left-color:#16A34A; font-size:7px; }
+.sem-text-end   { color:#EF4444; font-weight:700; border-left-color:#EF4444; font-size:7px; }
 
-/* Mobile Jahresansicht: 3 Spalten × 4 Zeilen – alles auf den Bildschirm */
+/* Mobile Jahresansicht: 3 Spalten × 4 Zeilen */
 @media (max-width:640px) {
   .year-grid { grid-template-columns:repeat(3,1fr); gap:5px; padding:5px; overflow:hidden; grid-auto-rows:1fr; }
   .mini-month { padding:4px 3px 4px; border-radius:7px; }
@@ -101,9 +124,8 @@
   .mini-kw-num { font-size:10px; min-height:16px; }
   .mini-wd { font-size:9px; line-height:13px; }
   .mini-wd-row { height:13px; }
-  .mini-month .mini-day { min-height:16px; }
-  .mini-month .mini-day-num { font-size:12px; font-weight:700; }
-  .mini-month .mini-day-dot { width:4px; height:4px; bottom:0; }
+  .mini-month .mini-day { min-height:20px; }
+  .mini-month .mini-day-num { font-size:10px; font-weight:700; }
 }
 @media (max-width:380px) {
   .year-grid { gap:4px; padding:4px; }
@@ -112,8 +134,8 @@
   .mini-kw-head { font-size:8px; height:13px; line-height:13px; }
   .mini-kw-num { font-size:9px; min-height:14px; }
   .mini-wd { font-size:8px; }
-  .mini-month .mini-day { min-height:14px; }
-  .mini-month .mini-day-num { font-size:11px; font-weight:700; }
+  .mini-month .mini-day { min-height:16px; }
+  .mini-month .mini-day-num { font-size:9px; font-weight:700; }
 }
 
 /* ── JGU Semester-Streifen ─────────────────────────────────── */
@@ -121,13 +143,13 @@
 .sem-summer { background: rgba(245, 158, 11, 0.08) !important; border-left: 3px solid #F59E0B !important; }
 .sem-winter { background: rgba(59, 130, 246, 0.08) !important; border-left: 3px solid #3B82F6 !important; }
 
-/* Monatsansicht: Semester-Badges */
-.sem-badge { position: absolute; top: 2px; right: 2px; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; z-index: 2; white-space: nowrap; line-height: 1.3; }
-.sem-badge-start { background: rgba(34,197,94,0.15); color: #16A34A; }
-.sem-badge-end   { background: rgba(239,68,68,0.15); color: #EF4444; }
+/* Monatsansicht: Semester als Event-Pill */
+.sem-pill { font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.sem-pill-start { background: rgba(34,197,94,0.18) !important; color: #16A34A; border-left: 3px solid #16A34A; }
+.sem-pill-end   { background: rgba(239,68,68,0.18) !important; color: #EF4444; border-left: 3px solid #EF4444; }
 
-/* Wochenansicht: Semester-Badges */
-.sem-week-badge { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; z-index: 2; white-space: nowrap; pointer-events: none; }
+/* Wochenansicht: Semester als Event-Block */
+.sem-event { font-size: 10px; font-weight: 700; display: flex; align-items: center; padding-left: 6px; border-radius: 4px; pointer-events: none; z-index: 2; position: absolute; }
 
 /* Wochenansicht Header-Stripe */
 .week-day-header.sem-summer { background: rgba(245, 158, 11, 0.1); border-bottom: 2px solid #F59E0B; }
@@ -138,14 +160,16 @@
 .mini-day.sem-winter { background: rgba(59, 130, 246, 0.15); border-left: 2px solid #3B82F6; }
 .mini-day.today-mini.sem-summer, .mini-day.today-mini.sem-winter { border-left: none; }
 
-/* Semester-Hinweise in Jahresansicht */
-.sem-hint { position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%); font-size: 5px; font-weight: 800; white-space: nowrap; line-height: 1; pointer-events: none; z-index: 2; }
-.sem-hint.sem-start { color: #16A34A; }
-.sem-hint.sem-end   { color: #EF4444; }
-
 /* Tagesansicht */
 .day-view-events-col.sem-summer { background: rgba(245, 158, 11, 0.06); border-left: 3px solid #F59E0B; }
 .day-view-events-col.sem-winter { background: rgba(59, 130, 246, 0.06); border-left: 3px solid #3B82F6; }
+
+/* Tagesansicht: Semester-Label im Header */
+.day-sem-label { font-size: 12px; font-weight: 600; margin-left: 2px; }
+.sem-label-summer { color: #D97706; }
+.sem-label-winter { color: #2563EB; }
+#dayViewHeader.sem-summer { background: rgba(245, 158, 11, 0.1); border-left: 3px solid #F59E0B; }
+#dayViewHeader.sem-winter { background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3B82F6; }
 
 /* Toggle-Switch für Einstellungen */
 .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
@@ -155,10 +179,68 @@
 .toggle-switch input:checked + .toggle-slider { background: var(--primary); }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
 
-/* Responsive: Semester-Badges kleiner auf Mobilgeräten */
+/* ── Mobile Responsive ─────────────────────────────────────── */
 @media (max-width: 600px) {
-  .sem-badge { font-size: 7px; padding: 1px 3px; }
-  .sem-week-badge { font-size: 8px; padding: 1px 4px; }
-  .sem-hint { font-size: 4px; }
+  .sem-pill { font-size: 8px; padding: 1px 3px; }
+  .sem-event { font-size: 8px; padding-left: 4px; }
+  .day-sem-label { font-size: 10px; }
 }
 
+/* iPhone / Small Mobile - Enhanced Touch & Layout */
+@media (max-width: 480px) {
+  /* Kalender-Toolbar: Ansichts-Buttons stapeln */
+  .cal-toolbar { flex-direction: column; gap: 8px; padding: 8px 12px; }
+  .view-switcher { flex-wrap: wrap; gap: 4px; }
+  .view-btn { padding: 6px 10px; font-size: 12px; min-height: 36px; }
+  .view-nav { justify-content: center; }
+  .month-label-btn { font-size: 14px; }
+
+  /* Monatsansicht: Kompakter */
+  .cal-day { min-height: 60px; padding: 2px; }
+  .day-num { font-size: 12px; }
+  .ev-pill { font-size: 9px; padding: 1px 4px; margin-bottom: 1px; }
+  .ev-more { font-size: 8px; }
+  .sem-pill { font-size: 7px; }
+
+  /* Wochenansicht: Touch-freundlicher */
+  .week-event-block { font-size: 10px; padding: 2px 4px; min-height: 24px; }
+  .sem-event { font-size: 8px; height: 20px !important; }
+  .week-day-header { font-size: 11px; padding: 4px 2px; }
+
+  /* Tagesansicht */
+  .day-view-time-slot { font-size: 10px; width: 40px; }
+  .day-sem-label { font-size: 9px; display: block; margin-left: 0; margin-top: 2px; }
+
+  /* Navbar */
+  .navbar-title { font-size: 14px; }
+  .back-btn { font-size: 13px; padding: 6px 10px; }
+  .btn-primary { font-size: 12px; padding: 8px 12px; }
+  .nav-icon-btn { font-size: 18px; padding: 6px; }
+}
+
+/* Very small screens (iPhone SE, etc.) */
+@media (max-width: 375px) {
+  .view-btn { padding: 5px 8px; font-size: 11px; }
+  .cal-day { min-height: 50px; }
+  .ev-pill { font-size: 8px; }
+  .week-day-header { font-size: 10px; }
+  .navbar-title { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Android / Landscape adjustments */
+@media (max-height: 500px) and (orientation: landscape) {
+  .year-grid { grid-template-columns: repeat(4,1fr); gap: 4px; padding: 4px; }
+  .mini-month { padding: 2px; }
+  .mini-month-title { font-size: 10px; margin-bottom: 1px; }
+  .navbar { padding: 4px 12px; min-height: 40px; }
+  .cal-toolbar { padding: 4px 8px; }
+}
+
+/* Touch: bigger tap targets for all interactive elements on touch devices */
+@media (pointer: coarse) {
+  .mini-month .mini-day { min-height: 24px; }
+  .view-btn { min-height: 36px; }
+  .month-arrow { min-width: 36px; min-height: 36px; }
+  .today-btn { min-height: 36px; padding: 6px 12px; }
+  .week-event-block { min-height: 28px; }
+}
