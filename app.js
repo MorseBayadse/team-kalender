@@ -1124,8 +1124,6 @@ function renderDayView() {
   col.style.position = 'relative';
   col.style.height   = HOURS*H + 'px';
   col.classList.toggle('is-sun-hol', isSunOrHol(ds));
-  // Semester-Streifen in Tagesansicht
-  const semD = isSemesterEnabled() ? getSemesterForDate(ds) : null;
   col.classList.toggle('sem-summer', semD?.type === 'summer');
   col.classList.toggle('sem-winter', semD?.type === 'winter');
   const dayHdrEl = document.getElementById('dayViewHeader');
