@@ -467,6 +467,8 @@ window.handleLogout = async () => {
 // ── Dropdown ─────────────────────────────────────────────────
 window.toggleDropdown = () => document.getElementById('avatarDropdown').classList.toggle('open');
 window.closeDropdown  = () => document.getElementById('avatarDropdown').classList.remove('open');
+// Reload-Button: Hard-Reload um Updates zu laden
+window.appReload = () => { location.reload(true); };
 document.addEventListener('click', e => {
   const btn = document.getElementById('avatarBtn');
   if (btn && !btn.contains(e.target)) closeDropdown();
