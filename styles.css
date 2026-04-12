@@ -131,7 +131,7 @@
 
 /* Mobile Jahresansicht: 3 Spalten × 4 Zeilen */
 @media (max-width:640px) {
-  .year-grid { grid-template-columns:repeat(3,1fr); gap:5px; padding:5px; overflow:hidden; grid-auto-rows:1fr; }
+  .year-grid { grid-template-columns:repeat(3,1fr); gap:5px; padding:5px; overflow-y:auto; grid-auto-rows:1fr; }
   .mini-month { padding:4px 3px 4px; border-radius:7px; }
   .mini-month-title { font-size:12px; margin-bottom:2px; padding:1px 0; }
   .mini-month-body { gap:2px; }
