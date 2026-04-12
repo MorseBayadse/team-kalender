@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/css/styles.css",
+      "destination": "/styles.css"
+    },
+    {
+      "source": "/js/app.js",
+      "destination": "/app.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
