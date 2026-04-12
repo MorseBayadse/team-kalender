@@ -30,11 +30,21 @@ const SEMESTER_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 h
 
 // Fallback-Daten (werden bei erfolgreichem Scrape überschrieben)
 const SEMESTER_FALLBACK = [
+  { type:'winter', label:'Wintersemester 2024/2025', start:'2024-10-21', end:'2025-02-08' },
+  { type:'summer', label:'Sommersemester 2025',      start:'2025-04-14', end:'2025-07-12' },
   { type:'winter', label:'Wintersemester 2025/2026', start:'2025-10-27', end:'2026-02-14' },
   { type:'summer', label:'Sommersemester 2026',      start:'2026-04-13', end:'2026-07-11' },
   { type:'winter', label:'Wintersemester 2026/2027', start:'2026-10-19', end:'2027-02-13' },
   { type:'summer', label:'Sommersemester 2027',      start:'2027-04-12', end:'2027-07-10' },
   { type:'winter', label:'Wintersemester 2027/2028', start:'2027-10-18', end:'2028-02-12' },
+  { type:'summer', label:'Sommersemester 2028',      start:'2028-04-10', end:'2028-07-08' },
+  { type:'winter', label:'Wintersemester 2028/2029', start:'2028-10-23', end:'2029-02-10' },
+  { type:'summer', label:'Sommersemester 2029',      start:'2029-04-16', end:'2029-07-14' },
+  { type:'winter', label:'Wintersemester 2029/2030', start:'2029-10-22', end:'2030-02-15' },
+  { type:'summer', label:'Sommersemester 2030',      start:'2030-04-15', end:'2030-07-12' },
+  { type:'winter', label:'Wintersemester 2030/2031', start:'2030-10-21', end:'2031-02-08' },
+  { type:'summer', label:'Sommersemester 2031',      start:'2031-04-14', end:'2031-07-12' },
+  { type:'winter', label:'Wintersemester 2031/2032', start:'2031-10-20', end:'2032-02-14' },
 ];
 
 /**
@@ -859,10 +869,10 @@ function renderMonth() {
       // Semester-Overlay
       const semM = isSemesterEnabled() ? getSemesterForDate(ds) : null;
       const semClsM = semM ? (semM.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-      const semBadge = semM ? (ds === semM.start ? '<div class="sem-badge sem-badge-start">Semester Anfang</div>' : ds === semM.end ? '<div class="sem-badge sem-badge-end">Semester Ende</div>' : '') : '';
+      const semEntry = semM ? (ds === semM.start ? '<div class="ev-pill sem-pill sem-pill-start" onclick="event.stopPropagation()">\u25b6 Semesteranfang</div>' : ds === semM.end ? '<div class="ev-pill sem-pill sem-pill-end" onclick="event.stopPropagation()">\u25c0 Semesterende</div>' : '') : '';
       const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semClsM;
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
-        <div class="day-num">${d.getDate()}</div>${semBadge}
+        <div class="day-num">${d.getDate()}</div>${semEntry}
         ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
         ${dayEvs.length > 3 ? `<div class="ev-more">+${dayEvs.length-3} mehr</div>` : ''}
       </div>`;
@@ -898,19 +908,38 @@ function renderDayPanel(ds) {
 }
 
 // ── Jahresansicht ────────────────────────────────────────────
+// ── Year-view zoom detection ────────────────────────────────
+let yearZoomObserver = null;
+function setupYearZoom() {
+  const grid = document.getElementById('yearGrid');
+  if (!grid) return;
+  if (yearZoomObserver) yearZoomObserver.disconnect();
+  function checkZoom() {
+    const md = grid.querySelector('.mini-day:not(.mini-day-empty)');
+    if (!md) return;
+    const w = md.getBoundingClientRect().width;
+    let level;
+    if (w >= 55) level = 'full';
+    else if (w >= 28) level = 'bars';
+    else level = 'dots';
+    if (grid.dataset.zoomLevel !== level) grid.dataset.zoomLevel = level;
+  }
+  yearZoomObserver = new ResizeObserver(checkZoom);
+  yearZoomObserver.observe(grid);
+  requestAnimationFrame(checkZoom);
+}
+
 function renderYearView() {
   document.getElementById('monthLabelText').textContent = viewYear;
   const grid = document.getElementById('yearGrid');
   const events = getEvents();
   const today = toDateStr(new Date());
-  // Kurze Wochentags-Labels (Mo, Di, Mi, Do, Fr, Sa, So)
   const WD = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
   let html = '';
   for (let m = 0; m < 12; m++) {
     const mn   = new Date(viewYear, m, 1).toLocaleDateString('de-DE', { month: 'short' }).replace('.', '');
     const fd   = new Date(viewYear, m, 1);
-    const sdow = (fd.getDay() + 6) % 7; // Mo=0
-    // KW-Spalte + Wochentage + Tage-Grid getrennt rendern
+    const sdow = (fd.getDay() + 6) % 7;
     let kwCells = '';
     let dayCells = '';
     let day = 1 - sdow;
@@ -924,20 +953,38 @@ function renderYearView() {
         const evs  = valid ? events.filter(e => e.date === ds || (e.date_end && e.date <= ds && e.date_end >= ds)) : [];
         const isToday = ds === today && valid;
         const sunHol  = valid && isSunOrHol(ds);
-        // Semester-Overlay prüfen
+        // Semester-Overlay
         const semY = valid && isSemesterEnabled() ? getSemesterForDate(ds) : null;
         const semCls = semY ? (semY.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-        const semHint = semY && valid ? (ds === semY.start ? '<div class="sem-hint sem-start">▶ Semester</div>' : ds === semY.end ? '<div class="sem-hint sem-end">◀ Sem.Ende</div>' : '') : '';
         const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
         const handler = valid ? `onclick="selectDayYear('${ds}')"` : '';
-        const hasEv = evs.length > 0;
-        const rs = hasEv ? getRoleStatus(evs[0]) : 'none';
-        const dotColor = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : (evs[0]?.color || activeCalendarData?.color || '#5B5FEF');
-        const dot = hasEv ? `<div class="mini-day-dot" style="background:${dotColor}"></div>` : '';
-        dayCells += `<div class="${cls}" ${handler}><span class="mini-day-num">${valid?d.getDate():''}</span>${dot}${semHint}</div>`;
+
+        // Event representations for 3 zoom levels
+        let evContent = '';
+        if (evs.length > 0) {
+          evContent = evs.slice(0, 3).map(ev => {
+            const c = ev.color || activeCalendarData?.color || '#5B5FEF';
+            const rs = getRoleStatus(ev);
+            const dc = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : c;
+            return `<div class="mev-dot" style="background:${dc}"></div>`
+                 + `<div class="mev-bar" style="background:${dc}"></div>`
+                 + `<div class="mev-text" style="border-left-color:${c}">${esc(ev.title)}</div>`;
+          }).join('');
+          if (evs.length > 3) evContent += `<div class="mev-text mev-more">+${evs.length-3}</div>`;
+        }
+        // Semester-Anfang/Ende als Termin-Eintrag
+        const semEntry = semY && valid ? (
+          ds === semY.start ? '<div class="mev-dot sem-dot-start"></div><div class="mev-bar sem-bar-start"></div><div class="mev-text sem-text-start">▶ Sem.Anfang</div>'
+          : ds === semY.end ? '<div class="mev-dot sem-dot-end"></div><div class="mev-bar sem-bar-end"></div><div class="mev-text sem-text-end">◀ Sem.Ende</div>'
+          : ''
+        ) : '';
+
+        dayCells += `<div class="${cls}" ${handler}>
+          <span class="mini-day-num">${valid ? d.getDate() : ''}</span>
+          <div class="mini-day-content">${semEntry}${evContent}</div>
+        </div>`;
         day++;
       }
-      // Abbruch, wenn Monat fertig und keine weiteren Tage mehr kommen
       if (day > 31 && new Date(viewYear, m, day).getMonth() !== m) break;
     }
     const wdHeader = WD.map((l, i) => `<div class="mini-wd${i===6?' mini-wd-sun':''}">${l}</div>`).join('');
@@ -953,6 +1000,7 @@ function renderYearView() {
     </div>`;
   }
   grid.innerHTML = html;
+  setupYearZoom();
 }
 window.setCalViewFromYear = m => {
   viewMonth = m;
@@ -1035,8 +1083,8 @@ function renderWeekView() {
     // Semester-Streifen in Wochenansicht
     const semW = isSemesterEnabled() ? getSemesterForDate(ds) : null;
     const semWCls = semW ? (semW.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-    const semWBadge = semW ? (ds === semW.start ? '<div class="sem-week-badge sem-badge-start">Semester Anfang</div>' : ds === semW.end ? '<div class="sem-week-badge sem-badge-end">Semester Ende</div>' : '') : '';
-    return `<div class="week-day-col${todayCls}${sunHolCls}${semWCls}" style="height:${HOURS*H}px">${lines}${blocks}${semWBadge}</div>`;
+    const semWBlock = semW ? (ds === semW.start ? `<div class="week-event-block sem-event sem-event-start" style="top:2px;height:24px;left:4px;right:4px;background:rgba(34,197,94,0.18);border-left:3px solid #16A34A;color:#16A34A">▶ Semesteranfang</div>` : ds === semW.end ? `<div class="week-event-block sem-event sem-event-end" style="top:2px;height:24px;left:4px;right:4px;background:rgba(239,68,68,0.18);border-left:3px solid #EF4444;color:#EF4444">◀ Semesterende</div>` : '') : '';
+    return `<div class="week-day-col${todayCls}${sunHolCls}${semWCls}" style="height:${HOURS*H}px">${lines}${blocks}${semWBlock}</div>`;
   }).join('');
 
   if (earlyRow) earlyRow.innerHTML = earlyHtml;
@@ -1059,8 +1107,13 @@ function renderDayView() {
   const H      = 60;
   document.getElementById('monthLabelText').textContent =
     'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-  document.getElementById('dayViewHeader').textContent =
-    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+  // Semester-Info für Tagesansicht
+  const semD = isSemesterEnabled() ? getSemesterForDate(ds) : null;
+  const semDayLabel = semD ? (ds === semD.start ? ' · ▶ Semesteranfang' : ds === semD.end ? ' · ◀ Semesterende' : ` · ${semD.label}`) : '';
+  const dayHdrEl = document.getElementById('dayViewHeader');
+  dayHdrEl.innerHTML = 'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})
+    + (semDayLabel ? `<span class="day-sem-label ${semD.type === 'summer' ? 'sem-label-summer' : 'sem-label-winter'}">${semDayLabel}</span>` : '');
+
 
   let timecol = '';
   for (let h = 0; h < HOURS; h++) timecol += `<div class="day-view-time-slot">${String(CAL_START_HOUR+h).padStart(2,'0')}:00</div>`;
