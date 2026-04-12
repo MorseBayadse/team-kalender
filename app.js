@@ -1,17 +1,17 @@
 // ============================================================
-// APP.JS – Team Kalender App (Supabase Edition)
+// APP.JS â Team Kalender App (Supabase Edition)
 // ============================================================
 
 import * as DB from './db.js';
 
-// ── Globaler App-Zustand ─────────────────────────────────────
+// ââ Globaler App-Zustand âââââââââââââââââââââââââââââââââââââ
 let currentUser = null;
-let allProfiles = [];   // gecachte Profile für Mitglieder-Anzeige
+let allProfiles = [];   // gecachte Profile fÃ¼r Mitglieder-Anzeige
 
 const CAL_COLORS = ['#5B5FEF','#FF6B6B','#43D9AD','#FFB547','#8B8FF8','#06B6D4','#F59E0B','#EC4899','#10B981','#6366F1'];
 let selectedColor = CAL_COLORS[0], selectedVisibility = 'team', eventSelectedColor = CAL_COLORS[0];
 let activeCalendarId = null, activeCalendarData = null;
-// Multi-Kalender-Unterstützung
+// Multi-Kalender-UnterstÃ¼tzung
 let allCalendars       = [];        // alle akzeptierten Kalender {id,name,color}
 let loadedCalendars    = new Map(); // id -> getCalendarDetails-Daten (Cache)
 let activeCalendarIds  = new Set(); // aktuell in der Ansicht sichtbare Kalender
@@ -20,15 +20,15 @@ let viewWeek = null, selectedDay = null, calView = 'month', editingEventId = nul
 let currentRoles = [];
 let settingsCalId = null;
 
-// ── JGU Mainz Semesterzeiten ────────────────────────────────
+// ââ JGU Mainz Semesterzeiten ââââââââââââââââââââââââââââââââ
 // Semester-Einstellung pro Kalender (Map: calId -> boolean)
 let calSemesterFlags = new Map();
-// Cache für Semesterzeiten
+// Cache fÃ¼r Semesterzeiten
 let semesterCache = null;
 let semesterCacheTS = 0;
 const SEMESTER_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 h
 
-// Fallback-Daten (werden bei erfolgreichem Scrape überschrieben)
+// Fallback-Daten (werden bei erfolgreichem Scrape Ã¼berschrieben)
 const SEMESTER_FALLBACK = [
   { type:'winter', label:'Wintersemester 2024/2025', start:'2024-10-21', end:'2025-02-08' },
   { type:'summer', label:'Sommersemester 2025',      start:'2025-04-14', end:'2025-07-12' },
@@ -50,7 +50,7 @@ const SEMESTER_FALLBACK = [
 /**
  * Semester-Daten von JGU Mainz laden.
  * Scraping-Proxy via Supabase Edge Function oder direkter Fetch.
- * Fällt bei Fehler auf die hartcodierten Daten zurück.
+ * FÃ¤llt bei Fehler auf die hartcodierten Daten zurÃ¼ck.
  */
 async function fetchSemesterData() {
   const now = Date.now();
@@ -110,13 +110,13 @@ async function fetchSemesterData() {
   return SEMESTER_FALLBACK;
 }
 
-/** Deutsches Datum "dd.mm.yyyy" → "yyyy-mm-dd" */
+/** Deutsches Datum "dd.mm.yyyy" â "yyyy-mm-dd" */
 function parseDEDate(s) {
   const m = s.match(/(\d{2})\.(\d{2})\.(\d{4})/);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
-/** Prüft ob ein Datum in einem Semester liegt. Gibt Semester-Objekt oder null zurück. */
+/** PrÃ¼ft ob ein Datum in einem Semester liegt. Gibt Semester-Objekt oder null zurÃ¼ck. */
 function getSemesterForDate(ds) {
   if (!semesterCache) return null;
   for (const sem of semesterCache) {
@@ -125,12 +125,12 @@ function getSemesterForDate(ds) {
   return null;
 }
 
-/** Prüft ob für mindestens einen aktiven Kalender die Semester-Anzeige aktiviert ist */
+/** PrÃ¼ft ob fÃ¼r mindestens einen aktiven Kalender die Semester-Anzeige aktiviert ist */
 function isSemesterEnabled() {
   for (const id of activeCalendarIds) {
     if (calSemesterFlags.get(id)) return true;
   }
-  // Auch einzelnen aktiven Kalender prüfen
+  // Auch einzelnen aktiven Kalender prÃ¼fen
   if (activeCalendarId && calSemesterFlags.get(activeCalendarId)) return true;
   return false;
 }
@@ -149,7 +149,7 @@ function saveSemesterFlags() {
   try { localStorage.setItem('cal_semester_flags', JSON.stringify(obj)); } catch {}
 }
 
-// ── Hilfsfunktionen ──────────────────────────────────────────
+// ââ Hilfsfunktionen ââââââââââââââââââââââââââââââââââââââââââ
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const toDateStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const dayAddDays = (s, n) => { const d = new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return toDateStr(d); };
@@ -165,8 +165,8 @@ function isoWeek(dateLike) {
   return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
 }
 
-// ── Feiertage Rheinland-Pfalz ───────────────────────────────
-// Gauß'sche Osterformel
+// ââ Feiertage Rheinland-Pfalz âââââââââââââââââââââââââââââââ
+// GauÃ'sche Osterformel
 function easterSunday(year) {
   const a = year % 19;
   const b = Math.floor(year / 100);
@@ -185,33 +185,37 @@ function easterSunday(year) {
   return new Date(year, mo - 1, da);
 }
 const _holidayCache = new Map();
+// Gibt Map<dateStr, name> zurÃ¼ck fÃ¼r gesetzliche Feiertage RLP
 function getRLPHolidays(year) {
   if (_holidayCache.has(year)) return _holidayCache.get(year);
   const easter = easterSunday(year);
   const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return toDateStr(x); };
-  const set = new Set([
-    `${year}-01-01`,          // Neujahr
-    addD(easter, -2),          // Karfreitag
-    addD(easter, 1),           // Ostermontag
-    `${year}-05-01`,          // Tag der Arbeit
-    addD(easter, 39),          // Christi Himmelfahrt
-    addD(easter, 50),          // Pfingstmontag
-    addD(easter, 60),          // Fronleichnam (RLP)
-    `${year}-10-03`,          // Tag der Deutschen Einheit
-    `${year}-11-01`,          // Allerheiligen (RLP)
-    `${year}-12-25`,          // 1. Weihnachtstag
-    `${year}-12-26`,          // 2. Weihnachtstag
+  const map = new Map([
+    [`${year}-01-01`,   'Neujahr'],
+    [addD(easter, -2),  'Karfreitag'],
+    [addD(easter, 1),   'Ostermontag'],
+    [`${year}-05-01`,   'Tag der Arbeit'],
+    [addD(easter, 39),  'Christi Himmelfahrt'],
+    [addD(easter, 50),  'Pfingstmontag'],
+    [addD(easter, 60),  'Fronleichnam'],
+    [`${year}-10-03`,   'Tag d. Dt. Einheit'],
+    [`${year}-11-01`,   'Allerheiligen'],
+    [`${year}-12-25`,   '1. Weihnachtstag'],
+    [`${year}-12-26`,   '2. Weihnachtstag'],
   ]);
-  _holidayCache.set(year, set);
-  return set;
+  _holidayCache.set(year, map);
+  return map;
 }
+// Besondere AnlÃ¤sse RLP (kein gesetzl. Feiertag)
 const _occasionCache = new Map();
 function getRLPOccasions(year) {
   if (_occasionCache.has(year)) return _occasionCache.get(year);
   const easter = easterSunday(year);
   const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return toDateStr(x); };
+  // Muttertag = 2. Sonntag im Mai
   const may1 = new Date(year, 4, 1);
   const muttertag = new Date(year, 4, 1 + (7 - may1.getDay()) % 7 + 7);
+  // BuÃ- und Bettag = Mittwoch vor dem 23.11.
   const nov23 = new Date(year, 10, 23);
   const bbt = new Date(year, 10, 23 - ((nov23.getDay() + 4) % 7));
   const map = new Map([
@@ -219,14 +223,14 @@ function getRLPOccasions(year) {
     [addD(easter, -48), 'Rosenmontag'],
     [addD(easter, -47), 'Fastnacht'],
     [addD(easter, -46), 'Aschermittwoch'],
-    [addD(easter, -3),  'Gründonnerstag'],
+    [addD(easter, -3),  'GrÃ¼ndonnerstag'],
     [addD(easter, 0),   'Ostersonntag'],
     [addD(easter, 49),  'Pfingstsonntag'],
     [`${year}-02-14`,   'Valentinstag'],
     [toDateStr(muttertag), 'Muttertag'],
     [`${year}-10-31`,   'Halloween'],
     [`${year}-11-11`,   'St. Martin'],
-    [toDateStr(bbt),    'Buß- & Bettag'],
+    [toDateStr(bbt),    'BuÃ- & Bettag'],
     [`${year}-12-06`,   'Nikolaus'],
     [`${year}-12-24`,   'Heiligabend'],
     [`${year}-12-31`,   'Silvester'],
@@ -239,17 +243,19 @@ function isHoliday(ds) {
   const y = parseInt(ds.slice(0, 4), 10);
   return getRLPHolidays(y).has(ds);
 }
-// Sonntag oder Feiertag? ds = 'YYYY-MM-DD'
+// Name des Feiertags oder null
 function getHolidayName(ds) {
   if (!ds) return null;
   const y = parseInt(ds.slice(0, 4), 10);
   return getRLPHolidays(y).get(ds) || null;
 }
+// Name des besonderen Anlasses oder null
 function getOccasionName(ds) {
   if (!ds) return null;
   const y = parseInt(ds.slice(0, 4), 10);
   return getRLPOccasions(y).get(ds) || null;
 }
+// Sonntag oder Feiertag? ds = 'YYYY-MM-DD'
 function isSunOrHol(ds) {
   if (!ds) return false;
   const d = new Date(ds + 'T00:00:00');
@@ -262,7 +268,7 @@ function getRoleStatus(ev) {
   if (!roles.length) return 'none';
   return roles.every(r => r.assigned_user_id) ? 'full' : 'open';
 }
-// HTML für die Kontrollleuchte. Liefert '' wenn der Termin keine Rollen hat.
+// HTML fÃ¼r die Kontrollleuchte. Liefert '' wenn der Termin keine Rollen hat.
 function roleLightHTML(ev, variant = '') {
   const s = getRoleStatus(ev);
   if (s === 'none') return '';
@@ -295,7 +301,7 @@ function showToast(msg, type = 'success') {
   t._timer = setTimeout(() => t.style.opacity = '0', 2800);
 }
 
-// ── Auth-Tabs ────────────────────────────────────────────────
+// ââ Auth-Tabs ââââââââââââââââââââââââââââââââââââââââââââââââ
 window.switchTab = tab => {
   document.querySelectorAll('.auth-tab').forEach((b, i) => b.classList.toggle('active', (i===0)===(tab==='login')));
   document.getElementById('form-login').classList.toggle('active', tab==='login');
@@ -303,7 +309,7 @@ window.switchTab = tab => {
   clearMsg();
 };
 
-// ── Registrierung ────────────────────────────────────────────
+// ââ Registrierung ââââââââââââââââââââââââââââââââââââââââââââ
 window.handleRegister = async e => {
   e.preventDefault();
   clearMsg();
@@ -315,16 +321,16 @@ window.handleRegister = async e => {
 
   // Validierung
   if (!fn || !ln)    return showMsg('Bitte Vor- und Nachname eingeben.');
-  if (pw !== pw2)    return showMsg('Die Passwörter stimmen nicht überein.');
+  if (pw !== pw2)    return showMsg('Die PasswÃ¶rter stimmen nicht Ã¼berein.');
   if (pw.length < 6) return showMsg('Das Passwort muss mindestens 6 Zeichen lang sein.');
 
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true;
-  btn.textContent = 'Wird registriert…';
+  btn.textContent = 'Wird registriertâ¦';
 
   try {
     const user = await DB.signUp(fn, ln, email, pw);
-    showMsg('✅ Konto erstellt! Du wirst angemeldet…', 'success');
+    showMsg('â Konto erstellt! Du wirst angemeldetâ¦', 'success');
     e.target.reset();
     // Direkt einloggen nach Registrierung
     setTimeout(async () => {
@@ -333,33 +339,33 @@ window.handleRegister = async e => {
   } catch (err) {
     const msg = err.message ?? '';
     if (msg.includes('already registered') || msg.includes('already been registered')) {
-      showMsg('❌ Diese E-Mail ist bereits registriert. Bitte anmelden.');
+      showMsg('â Diese E-Mail ist bereits registriert. Bitte anmelden.');
     } else if (msg.includes('invalid') && msg.includes('email')) {
-      showMsg('❌ Bitte eine gültige E-Mail-Adresse eingeben.');
+      showMsg('â Bitte eine gÃ¼ltige E-Mail-Adresse eingeben.');
     } else if (msg.includes('Password') || msg.includes('password')) {
-      showMsg('❌ Passwort zu schwach. Bitte mindestens 6 Zeichen verwenden.');
+      showMsg('â Passwort zu schwach. Bitte mindestens 6 Zeichen verwenden.');
     } else {
-      showMsg('❌ Fehler bei der Registrierung: ' + msg);
+      showMsg('â Fehler bei der Registrierung: ' + msg);
     }
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Konto erstellen →';
+    btn.textContent = 'Konto erstellen â';
   }
 };
 
-// ── Anmeldung ────────────────────────────────────────────────
+// ââ Anmeldung ââââââââââââââââââââââââââââââââââââââââââââââââ
 window.handleLogin = async e => {
   e.preventDefault();
   clearMsg();
   const email = document.getElementById('login-email').value.trim().toLowerCase();
   const pw    = document.getElementById('login-password').value;
 
-  if (!email) return showMsg('❌ Bitte E-Mail-Adresse eingeben.');
-  if (!pw)    return showMsg('❌ Bitte Passwort eingeben.');
+  if (!email) return showMsg('â Bitte E-Mail-Adresse eingeben.');
+  if (!pw)    return showMsg('â Bitte Passwort eingeben.');
 
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true;
-  btn.textContent = 'Wird angemeldet…';
+  btn.textContent = 'Wird angemeldetâ¦';
 
   try {
     await DB.signIn(email, pw);
@@ -368,37 +374,37 @@ window.handleLogin = async e => {
     const msg = err.message ?? '';
     if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
       // Unterscheide: E-Mail nicht registriert vs. falsches Passwort
-      // Dummy-Login mit falsem Passwort um zu prüfen ob E-Mail existiert
+      // Dummy-Login mit falsem Passwort um zu prÃ¼fen ob E-Mail existiert
       const { error: checkErr } = await DB.supabase.auth.signInWithPassword({ email, password: '__CHECK__' });
       if (checkErr?.message?.includes('Invalid login credentials')) {
         // Gleicher Fehler = E-Mail existiert, Passwort falsch
-        showMsg('❌ Falsches Passwort. Bitte überprüfe dein Passwort.');
+        showMsg('â Falsches Passwort. Bitte Ã¼berprÃ¼fe dein Passwort.');
       } else {
         // Anderer Fehler = E-Mail nicht registriert
-        showMsg('❌ Diese E-Mail-Adresse ist nicht registriert. Bitte zuerst registrieren.');
+        showMsg('â Diese E-Mail-Adresse ist nicht registriert. Bitte zuerst registrieren.');
       }
     } else if (msg.includes('Email not confirmed')) {
-      showMsg('❌ E-Mail noch nicht bestätigt. Bitte Postfach prüfen.');
+      showMsg('â E-Mail noch nicht bestÃ¤tigt. Bitte Postfach prÃ¼fen.');
     } else if (msg.includes('too many') || msg.includes('rate limit')) {
-      showMsg('❌ Zu viele Versuche. Bitte kurz warten.');
+      showMsg('â Zu viele Versuche. Bitte kurz warten.');
     } else {
-      showMsg('❌ Anmeldung fehlgeschlagen: ' + msg);
+      showMsg('â Anmeldung fehlgeschlagen: ' + msg);
     }
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Anmelden →';
+    btn.textContent = 'Anmelden â';
   }
 };
 
-// ── App betreten ─────────────────────────────────────────────
+// ââ App betreten âââââââââââââââââââââââââââââââââââââââââââââ
 async function enterApp(user) {
   currentUser = user;
-  // Privaten Kalender sicherstellen (Backfill für Altnutzer)
+  // Privaten Kalender sicherstellen (Backfill fÃ¼r Altnutzer)
   try { await DB.ensurePersonalCalendar(user.id); } catch (_) {}
   // Semester-Flags und -Daten laden
   loadSemesterFlags();
   fetchSemesterData(); // im Hintergrund
-  // Profile für Mitglieder-Anzeige vorladen
+  // Profile fÃ¼r Mitglieder-Anzeige vorladen
   allProfiles = await DB.getProfiles().catch(() => []);
 
   document.getElementById('navAvatar').textContent = user.avatar ?? '??';
@@ -409,12 +415,12 @@ async function enterApp(user) {
   await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
 }
 
-// ── ICS-Abo (Outlook/Apple Kalender) ─────────────────────────
+// ââ ICS-Abo (Outlook/Apple Kalender) âââââââââââââââââââââââââ
 window.openIcsDialog = async () => {
   closeDropdown();
   const modal = document.getElementById('icsModal');
   const urlInp = document.getElementById('ics-url');
-  urlInp.value = 'Lädt...';
+  urlInp.value = 'LÃ¤dt...';
   modal.classList.add('open');
   try {
     let sub = await DB.getIcsSubscription(currentUser.id);
@@ -439,7 +445,7 @@ window.copyIcsUrl = async () => {
   }
 };
 window.regenIcsUrl = async () => {
-  if (!confirm('Alten Link ungültig machen und einen neuen erzeugen?')) return;
+  if (!confirm('Alten Link ungÃ¼ltig machen und einen neuen erzeugen?')) return;
   try {
     const sub = await DB.createIcsSubscription(currentUser.id);
     document.getElementById('ics-url').value = sub.url;
@@ -449,7 +455,7 @@ window.regenIcsUrl = async () => {
   }
 };
 
-// ── Abmeldung ────────────────────────────────────────────────
+// ââ Abmeldung ââââââââââââââââââââââââââââââââââââââââââââââââ
 window.handleLogout = async () => {
   try {
     await DB.signOut();
@@ -464,7 +470,7 @@ window.handleLogout = async () => {
   }
 };
 
-// ── Dropdown ─────────────────────────────────────────────────
+// ââ Dropdown âââââââââââââââââââââââââââââââââââââââââââââââââ
 window.toggleDropdown = () => document.getElementById('avatarDropdown').classList.toggle('open');
 window.closeDropdown  = () => document.getElementById('avatarDropdown').classList.remove('open');
 // Reload-Button: Hard-Reload um Updates zu laden
@@ -474,7 +480,7 @@ document.addEventListener('click', e => {
   if (btn && !btn.contains(e.target)) closeDropdown();
 });
 
-// ── Farbpicker ───────────────────────────────────────────────
+// ââ Farbpicker âââââââââââââââââââââââââââââââââââââââââââââââ
 function buildColorPicker(containerId, currentColor, onSelect) {
   const p = document.getElementById(containerId);
   p.innerHTML = CAL_COLORS.map((c) =>
@@ -503,11 +509,11 @@ window.selectEventColor = (color, el) => {
 window.selectVis = vis => {
   selectedVisibility = vis;
   ['private','team','public'].forEach(v => document.getElementById('vis-'+v).classList.toggle('active', v===vis));
-  const hints = { private:'Nur du kannst diesen Kalender sehen.', team:'Nur eingeladene Mitglieder können diesen Kalender sehen.', public:'Alle registrierten Nutzer können diesen Kalender entdecken.' };
+  const hints = { private:'Nur du kannst diesen Kalender sehen.', team:'Nur eingeladene Mitglieder kÃ¶nnen diesen Kalender sehen.', public:'Alle registrierten Nutzer kÃ¶nnen diesen Kalender entdecken.' };
   document.getElementById('visHint').textContent = hints[vis];
 };
 
-// ── Kalender erstellen ───────────────────────────────────────
+// ââ Kalender erstellen âââââââââââââââââââââââââââââââââââââââ
 window.openCreateModal = () => {
   buildCalColorPicker();
   document.getElementById('cal-name').value = '';
@@ -536,18 +542,18 @@ window.createCalendar = async () => {
   }
 };
 
-// ── Home: Kalender rendern ───────────────────────────────────
+// ââ Home: Kalender rendern âââââââââââââââââââââââââââââââââââ
 async function renderCalendars() {
   const grid  = document.getElementById('calendarGrid');
   const label = document.getElementById('calCountLabel');
-  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted)">Lädt...</div>';
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted)">LÃ¤dt...</div>';
   try {
     const cals = await DB.getCalendars(currentUser.id);
     const myCals = cals.filter(c => c.myStatus === 'accepted');
     label.textContent = myCals.length === 0 ? 'Noch keine Kalender' : myCals.length + ' Kalender';
 
     if (myCals.length === 0) {
-      grid.innerHTML = '<div class="empty-cals"><div style="font-size:44px;margin-bottom:14px">📅</div><h3>Noch keine Kalender</h3><p>Klicke auf „Neuer Kalender" um zu starten.</p></div>';
+      grid.innerHTML = '<div class="empty-cals"><div style="font-size:44px;margin-bottom:14px">ð</div><h3>Noch keine Kalender</h3><p>Klicke auf âNeuer Kalender" um zu starten.</p></div>';
       return;
     }
 
@@ -570,7 +576,7 @@ async function renderCalendars() {
   }
 }
 
-// ── Home: Einladungen rendern ────────────────────────────────
+// ââ Home: Einladungen rendern ââââââââââââââââââââââââââââââââ
 async function renderInvites() {
   try {
     const cals    = await DB.getCalendars(currentUser.id);
@@ -579,14 +585,14 @@ async function renderInvites() {
     sec.style.display = pending.length > 0 ? 'block' : 'none';
     document.getElementById('invitesList').innerHTML = pending.map(cal =>
       `<div class="invite-card">
-        <div style="font-size:24px">📅</div>
+        <div style="font-size:24px">ð</div>
         <div style="flex:1">
           <div style="font-weight:700">${esc(cal.name)}</div>
           <div style="font-size:12px;color:var(--text-muted)">Einladung ausstehend</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn-accept" onclick="acceptInvite('${cal.id}')">✓</button>
-          <button class="btn-decline" onclick="declineInvite('${cal.id}')">✕</button>
+          <button class="btn-accept" onclick="acceptInvite('${cal.id}')">â</button>
+          <button class="btn-decline" onclick="declineInvite('${cal.id}')">â</button>
         </div>
       </div>`
     ).join('');
@@ -611,7 +617,7 @@ window.declineInvite = async calId => {
   }
 };
 
-// ── Home: Meine Termine ──────────────────────────────────────
+// ââ Home: Meine Termine ââââââââââââââââââââââââââââââââââââââ
 async function renderMyEvents() {
   const list  = document.getElementById('myEventsList');
   const label = document.getElementById('myEventsLabel');
@@ -627,9 +633,9 @@ async function renderMyEvents() {
         </div>
         <div style="flex:1">
           <div class="my-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div>
-          <div class="my-event-meta">${esc(ev.calName)}${ev.time ? ' · ' + ev.time : ''}</div>
+          <div class="my-event-meta">${esc(ev.calName)}${ev.time ? ' Â· ' + ev.time : ''}</div>
         </div>
-        <span class="role-badge role-member">🎭 ${esc(ev.myRoleName)}</span>
+        <span class="role-badge role-member">ð­ ${esc(ev.myRoleName)}</span>
       </div>`;
     }).join('');
   } catch (_) {}
@@ -645,10 +651,10 @@ window.jumpToEvent = (calId, date) => {
   });
 };
 
-// ── Kalender öffnen ──────────────────────────────────────────
+// ââ Kalender Ã¶ffnen ââââââââââââââââââââââââââââââââââââââââââ
 window.openCalendar = async id => {
   try {
-    // Alle Kalender des Users laden (für die Auswahlleiste) – eigene + geteilte
+    // Alle Kalender des Users laden (fÃ¼r die Auswahlleiste) â eigene + geteilte
     const cals = await DB.getCalendars(currentUser.id);
     allCalendars = cals
       .filter(c => c.myStatus === 'accepted')
@@ -689,7 +695,7 @@ window.goHome = async () => {
   await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
 };
 
-// Prüft ob der "primäre" Kalender (der Schreib-Ziel-Kalender) read-only ist
+// PrÃ¼ft ob der "primÃ¤re" Kalender (der Schreib-Ziel-Kalender) read-only ist
 function primaryCalendarIsReadOnly() {
   const cal = allCalendars.find(c => c.id === activeCalendarId);
   return !!cal?.readOnly;
@@ -742,13 +748,13 @@ function renderCalendarStrip() {
   if (!allCalendars.length) { strip.innerHTML = ''; return; }
 
   const allActive = activeCalendarIds.size === allCalendars.length;
-  const allChip = `<button class="cal-chip cal-chip-all${allActive?' active':''}" onclick="toggleAllCalendars()" title="Alle Kalender anzeigen">📅 Alle Kalender</button>`;
+  const allChip = `<button class="cal-chip cal-chip-all${allActive?' active':''}" onclick="toggleAllCalendars()" title="Alle Kalender anzeigen">ð Alle Kalender</button>`;
   const sep = `<div class="cal-chip-sep"></div>`;
   const chips = allCalendars.map(c => {
     const isActive = activeCalendarIds.has(c.id);
     const roClass  = c.readOnly ? ' cal-chip-ro' : '';
-    const roIcon   = c.readOnly ? '<span class="cal-chip-ro-icon" title="Nur lesbar (geteilter Kalender)">👁</span>' : '';
-    const titleTxt = esc(c.name) + (c.readOnly ? ' · nur lesbar (geteilt)' : '') + (isActive ? ' · aktiv' : '');
+    const roIcon   = c.readOnly ? '<span class="cal-chip-ro-icon" title="Nur lesbar (geteilter Kalender)">ð</span>' : '';
+    const titleTxt = esc(c.name) + (c.readOnly ? ' Â· nur lesbar (geteilt)' : '') + (isActive ? ' Â· aktiv' : '');
     return `<button class="cal-chip${isActive?' active':''}${roClass}" onclick="toggleCalendar('${c.id}')" title="${titleTxt}">
       <span class="cal-chip-dot" style="background:${c.color}"></span>${roIcon}${esc(c.name)}
     </button>`;
@@ -759,7 +765,7 @@ function renderCalendarStrip() {
 // Einen Kalender ein-/ausschalten (Multi-Select)
 window.toggleCalendar = async id => {
   if (activeCalendarIds.has(id)) {
-    // Letzten Kalender nicht abschalten — sonst wäre nichts mehr zu sehen
+    // Letzten Kalender nicht abschalten â sonst wÃ¤re nichts mehr zu sehen
     if (activeCalendarIds.size === 1) return;
     activeCalendarIds.delete(id);
   } else {
@@ -775,7 +781,7 @@ window.toggleCalendar = async id => {
     }
     activeCalendarIds.add(id);
   }
-  // activeCalendarId = "primärer" Kalender (erster aktiver) — für Settings/Farbe
+  // activeCalendarId = "primÃ¤rer" Kalender (erster aktiver) â fÃ¼r Settings/Farbe
   const firstId = activeCalendarIds.values().next().value;
   activeCalendarId   = firstId;
   activeCalendarData = loadedCalendars.get(firstId);
@@ -789,7 +795,7 @@ window.toggleCalendar = async id => {
 window.toggleAllCalendars = async () => {
   const allActive = activeCalendarIds.size === allCalendars.length;
   if (allActive) {
-    // Zurück auf nur den primären
+    // ZurÃ¼ck auf nur den primÃ¤ren
     const keep = activeCalendarId || allCalendars[0]?.id;
     activeCalendarIds = new Set(keep ? [keep] : []);
   } else {
@@ -815,7 +821,7 @@ window.toggleAllCalendars = async () => {
   renderCurrentView();
 };
 
-// ── Ansicht wechseln ─────────────────────────────────────────
+// ââ Ansicht wechseln âââââââââââââââââââââââââââââââââââââââââ
 const VIEW_IDS = { year:'viewYear', month:'viewMonth', week:'viewWeek', day:'viewDay', mine:'viewMine' };
 window.setCalView = v => {
   calView = v;
@@ -860,8 +866,8 @@ window.goToday = () => {
   renderCurrentView();
 };
 
-// ── Monatsansicht ────────────────────────────────────────────
-// Termine über alle aktiven Kalender hinweg sammeln und nach Datum/Zeit sortieren.
+// ââ Monatsansicht ââââââââââââââââââââââââââââââââââââââââââââ
+// Termine Ã¼ber alle aktiven Kalender hinweg sammeln und nach Datum/Zeit sortieren.
 // Jeder Termin wird mit der Farbe seines Kalenders ausgestattet, falls keine
 // eigene Farbe gesetzt ist. So bleiben Termine aus verschiedenen Kalendern
 // in allen Ansichten farblich unterscheidbar.
@@ -897,7 +903,7 @@ function renderMonth() {
   let html = '';
   let day = 1 - startDow;
   for (let row = 0; row < 6; row++) {
-    // Montag dieser Zeile bestimmen → KW ableiten
+    // Montag dieser Zeile bestimmen â KW ableiten
     const mondayDate = new Date(viewYear, viewMonth, day);
     const kw = isoWeek(mondayDate);
     const kwCls = (kw === todayKW && mondayDate.getFullYear() === new Date().getFullYear()) ? 'kw-cell today-kw' : 'kw-cell';
@@ -910,10 +916,11 @@ function renderMonth() {
       // Semester-Overlay
       const semM = isSemesterEnabled() ? getSemesterForDate(ds) : null;
       const semClsM = semM ? (semM.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-      const semEntry = semM ? (ds === semM.start ? '<div class="ev-pill sem-pill sem-pill-start" onclick="event.stopPropagation()">\u25b6 Semesteranfang</div>' : ds === semM.end ? '<div class="ev-pill sem-pill sem-pill-end" onclick="event.stopPropagation()">\u25c0 Semesterende</div>' : '') : '';
+      const semEntry = semM ? (ds === semM.start ? '<div class="ev-pill sem-pill sem-pill-start" onclick="event.stopPropagation()">â¶ Semesteranfang</div>' : ds === semM.end ? '<div class="ev-pill sem-pill sem-pill-end" onclick="event.stopPropagation()">â Semesterende</div>' : '') : '';
       const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semClsM;
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
-        <div class="day-num">${d.getDate()}</div>${semEntry}
+        <div class="day-num">${d.getDate()}</div>
+        ${semEntry}
         ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
         ${dayEvs.length > 3 ? `<div class="ev-more">+${dayEvs.length-3} mehr</div>` : ''}
       </div>`;
@@ -936,20 +943,20 @@ function renderDayPanel(ds) {
   const addBtn  = document.getElementById('dayPanelAdd');
   if (addBtn) addBtn.style.display = 'flex';
   document.getElementById('dayPanelTitle').textContent =
-    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
+    'KW ' + isoWeek(d) + ' Â· ' + d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
   document.getElementById('dayEvents').innerHTML = dayEvs.length === 0
     ? '<div class="no-events">Keine Termine</div>'
     : dayEvs.map(ev => `<div class="day-event-item" style="border-left-color:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
-        <div class="day-event-time">${ev.time ? ev.time.slice(0,5) : '—'}</div>
+        <div class="day-event-time">${ev.time ? ev.time.slice(0,5) : 'â'}</div>
         <div style="flex:1">
           <div class="day-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div>
-          ${ev.location ? `<div class="day-event-desc">📍 ${esc(ev.location)}</div>` : ''}
+          ${ev.location ? `<div class="day-event-desc">ð ${esc(ev.location)}</div>` : ''}
         </div>
       </div>`).join('');
 }
 
-// ── Jahresansicht ────────────────────────────────────────────
-// ── Year-view zoom detection ────────────────────────────────
+// ââ Jahresansicht ââââââââââââââââââââââââââââââââââââââââââââ
+// ââ Year-view zoom detection ââââââââââââââââââââââââââââââââ
 let yearZoomObserver = null;
 let yearZoomVVHandler = null;
 function setupYearZoom() {
@@ -964,6 +971,7 @@ function setupYearZoom() {
     const md = grid.querySelector('.mini-day:not(.mini-day-empty)');
     if (!md) return;
     const cssW = md.getBoundingClientRect().width;
+    // Pinch-to-zoom Ã¤ndert nicht die CSS-Pixel, nur den visuellen Scale
     const scale = window.visualViewport?.scale || 1;
     const w = cssW * scale;
     let level;
@@ -974,6 +982,7 @@ function setupYearZoom() {
   }
   yearZoomObserver = new ResizeObserver(checkZoom);
   yearZoomObserver.observe(grid);
+  // Pinch-Zoom auf Mobile erkennen
   if (window.visualViewport) {
     yearZoomVVHandler = checkZoom;
     window.visualViewport.addEventListener('resize', yearZoomVVHandler);
@@ -1011,10 +1020,10 @@ function renderYearView() {
         // Semester-Overlay
         const semY = valid && isSemesterEnabled() ? getSemesterForDate(ds) : null;
         const semCls = semY ? (semY.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-                const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', holName?'is-holiday':'', occName?'is-occasion':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
+        const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', holName?'is-holiday':'', occName?'is-occasion':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
         const handler = valid ? `onclick="selectDayYear('${ds}')"` : '';
 
-        // Event representations for 3 zoom levels
+        // Feiertag / Anlass Label (dot + bar + text fÃ¼r alle 3 Zoom-Stufen)
         let holEntry = '';
         if (holName) {
           holEntry = `<div class="mev-dot hol-dot"></div><div class="mev-bar hol-bar"></div><div class="mev-text hol-label">${esc(holName)}</div>`;
@@ -1022,6 +1031,7 @@ function renderYearView() {
           holEntry = `<div class="mev-dot occ-dot"></div><div class="mev-bar occ-bar"></div><div class="mev-text occ-label">${esc(occName)}</div>`;
         }
 
+        // Event representations for 3 zoom levels
         let evContent = '';
         if (evs.length > 0) {
           evContent = evs.slice(0, 3).map(ev => {
@@ -1036,8 +1046,8 @@ function renderYearView() {
         }
         // Semester-Anfang/Ende als Termin-Eintrag
         const semEntry = semY && valid ? (
-          ds === semY.start ? '<div class="mev-dot sem-dot-start"></div><div class="mev-bar sem-bar-start"></div><div class="mev-text sem-text-start">▶ Sem.Anfang</div>'
-          : ds === semY.end ? '<div class="mev-dot sem-dot-end"></div><div class="mev-bar sem-bar-end"></div><div class="mev-text sem-text-end">◀ Sem.Ende</div>'
+          ds === semY.start ? '<div class="mev-dot sem-dot-start"></div><div class="mev-bar sem-bar-start"></div><div class="mev-text sem-text-start">â¶ Sem.Anfang</div>'
+          : ds === semY.end ? '<div class="mev-dot sem-dot-end"></div><div class="mev-bar sem-bar-end"></div><div class="mev-text sem-text-end">â Sem.Ende</div>'
           : ''
         ) : '';
 
@@ -1075,9 +1085,9 @@ window.selectDayYear = ds => {
   setCalView('month');
 };
 
-// ── Wochenansicht ────────────────────────────────────────────
+// ââ Wochenansicht ââââââââââââââââââââââââââââââââââââââââââââ
 const CAL_START_HOUR = 6;   // Tag beginnt um 06:00
-const CAL_END_HOUR   = 24;  // Tag endet um 19:00 (untere Kante)
+const CAL_END_HOUR   = 24;  // Tag endet um 24:00 (untere Kante)
 function renderWeekView() {
   if (!viewWeek) viewWeek = getMondayOf(toDateStr(new Date()));
   const today  = toDateStr(new Date());
@@ -1088,8 +1098,8 @@ function renderWeekView() {
   const start  = new Date(days[0]+'T00:00:00');
   const end    = new Date(days[6]+'T00:00:00');
   document.getElementById('monthLabelText').textContent =
-    'KW ' + isoWeek(start) + ' · ' +
-    start.toLocaleDateString('de-DE',{day:'numeric',month:'short'}) + ' – ' +
+    'KW ' + isoWeek(start) + ' Â· ' +
+    start.toLocaleDateString('de-DE',{day:'numeric',month:'short'}) + ' â ' +
     end.toLocaleDateString('de-DE',{day:'numeric',month:'short',year:'numeric'});
 
   document.getElementById('weekDayHeaders').innerHTML = days.map(ds => {
@@ -1110,14 +1120,14 @@ function renderWeekView() {
   timecol += `<div class="week-time-slot week-time-slot-end">${String(CAL_END_HOUR).padStart(2,'0')}:00</div>`;
   document.getElementById('weekTimeCol').innerHTML = timecol;
 
-  // Helfer: kompakte Mini-Pille für Früh/Spät-Zeile
+  // Helfer: kompakte Mini-Pille fÃ¼r FrÃ¼h/SpÃ¤t-Zeile
   const miniPill = ev => {
     const bg = ev.color||activeCalendarData?.color||'#5B5FEF';
     const t  = (ev.time||'').slice(0,5);
     return `<div class="week-mini-pill" style="background:${bg}" onclick="openEventModal('${ev.id}')" title="${esc(ev.title)} ${t}">${roleLightHTML(ev)}<span class="wmp-t">${t}</span> ${esc(ev.title)}</div>`;
   };
 
-  // Früh- und Spät-Zeilen (fixiert) + Haupt-Grid
+  // FrÃ¼h- und SpÃ¤t-Zeilen (fixiert) + Haupt-Grid
   const earlyRow = document.getElementById('weekEarlyDays');
   const lateRow  = document.getElementById('weekLateDays');
   if (earlyRow) earlyRow.style.gridTemplateColumns = `repeat(7,1fr)`;
@@ -1145,7 +1155,7 @@ function renderWeekView() {
     // Semester-Streifen in Wochenansicht
     const semW = isSemesterEnabled() ? getSemesterForDate(ds) : null;
     const semWCls = semW ? (semW.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-    const semWBlock = semW ? (ds === semW.start ? `<div class="week-event-block sem-event sem-event-start" style="top:2px;height:24px;left:4px;right:4px;background:rgba(34,197,94,0.18);border-left:3px solid #16A34A;color:#16A34A">▶ Semesteranfang</div>` : ds === semW.end ? `<div class="week-event-block sem-event sem-event-end" style="top:2px;height:24px;left:4px;right:4px;background:rgba(239,68,68,0.18);border-left:3px solid #EF4444;color:#EF4444">◀ Semesterende</div>` : '') : '';
+    const semWBlock = semW ? (ds === semW.start ? `<div class="week-event-block sem-event sem-event-start" style="top:2px;height:24px;left:4px;right:4px;background:rgba(34,197,94,0.18);border-left:3px solid #16A34A;color:#16A34A">â¶ Semesteranfang</div>` : ds === semW.end ? `<div class="week-event-block sem-event sem-event-end" style="top:2px;height:24px;left:4px;right:4px;background:rgba(239,68,68,0.18);border-left:3px solid #EF4444;color:#EF4444">â Semesterende</div>` : '') : '';
     return `<div class="week-day-col${todayCls}${sunHolCls}${semWCls}" style="height:${HOURS*H}px">${lines}${blocks}${semWBlock}</div>`;
   }).join('');
 
@@ -1160,7 +1170,7 @@ function renderWeekView() {
   document.getElementById('weekDaysGrid').innerHTML = mainCols;
 }
 
-// ── Tagesansicht ─────────────────────────────────────────────
+// ââ Tagesansicht âââââââââââââââââââââââââââââââââââââââââââââ
 function renderDayView() {
   const ds     = selectedDay || toDateStr(new Date());
   const d      = new Date(ds+'T00:00:00');
@@ -1168,14 +1178,13 @@ function renderDayView() {
   const HOURS  = CAL_END_HOUR - CAL_START_HOUR; // 13 Slots (06..18)
   const H      = 60;
   document.getElementById('monthLabelText').textContent =
-    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-  // Semester-Info für Tagesansicht
+    'KW ' + isoWeek(d) + ' Â· ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  // Semester-Info fÃ¼r Tagesansicht
   const semD = isSemesterEnabled() ? getSemesterForDate(ds) : null;
-  const semDayLabel = semD ? (ds === semD.start ? ' · ▶ Semesteranfang' : ds === semD.end ? ' · ◀ Semesterende' : ` · ${semD.label}`) : '';
+  const semDayLabel = semD ? (ds === semD.start ? ' Â· â¶ Semesteranfang' : ds === semD.end ? ' Â· â Semesterende' : ` Â· ${semD.label}`) : '';
   const dayHdrEl = document.getElementById('dayViewHeader');
-  dayHdrEl.innerHTML = 'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})
+  dayHdrEl.innerHTML = 'KW ' + isoWeek(d) + ' Â· ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})
     + (semDayLabel ? `<span class="day-sem-label ${semD.type === 'summer' ? 'sem-label-summer' : 'sem-label-winter'}">${semDayLabel}</span>` : '');
-
 
   let timecol = '';
   for (let h = 0; h < HOURS; h++) timecol += `<div class="day-view-time-slot">${String(CAL_START_HOUR+h).padStart(2,'0')}:00</div>`;
@@ -1218,7 +1227,7 @@ function renderDayView() {
     const top = ((hh-CAL_START_HOUR)*60+mm)/60*H;
     const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); const d=((eh*60+em)-(hh*60+mm))/60*H; return Math.min(d, (HOURS*H)-top); })() : H;
     return `<div class="day-event-timed" style="top:${top}px;height:${Math.max(dur,28)}px;left:8px;right:8px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
-      ${roleLightHTML(ev,'lg')}${esc(ev.title)}${ev.time?' · '+ev.time.slice(0,5):''}
+      ${roleLightHTML(ev,'lg')}${esc(ev.title)}${ev.time?' Â· '+ev.time.slice(0,5):''}
     </div>`;
   }).join('');
   const now  = new Date();
@@ -1231,7 +1240,7 @@ function renderDayView() {
   col.innerHTML = blocks + nowLine;
 }
 
-// ── "Meine Termine"-Ansicht ───────────────────────────────────
+// ââ "Meine Termine"-Ansicht âââââââââââââââââââââââââââââââââââ
 function renderMineView() {
   document.getElementById('monthLabelText').textContent = 'Meine Termine';
   const today  = toDateStr(new Date());
@@ -1239,33 +1248,33 @@ function renderMineView() {
     .filter(e => e.date >= today)
     .sort((a,b) => (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
   // "Meine"-Ansicht: Termine, in die ich involviert bin
-  //   – Termine ohne Rollen gelten allen Mitgliedern (also auch mir)
-  //   – Termine mit Rollen nur, wenn mir eine Rolle zugewiesen ist
+  //   â Termine ohne Rollen gelten allen Mitgliedern (also auch mir)
+  //   â Termine mit Rollen nur, wenn mir eine Rolle zugewiesen ist
   const mineEvs = events.filter(e => {
     const roles = e.event_roles || [];
     if (roles.length === 0) return true;
     return roles.some(r => r.assigned_user_id === currentUser?.id);
   });
   document.getElementById('mineViewLabel').textContent =
-    mineEvs.length + ' bevorstehende Termine für mich';
+    mineEvs.length + ' bevorstehende Termine fÃ¼r mich';
   document.getElementById('mineViewList').innerHTML = mineEvs.map(ev => {
     const d = new Date(ev.date+'T00:00:00');
     const roles = ev.event_roles || [];
     const myRole = roles.find(r => r.assigned_user_id === currentUser?.id);
     const badge = myRole
-      ? `<span class="role-badge role-member">🎭 ${esc(myRole.name)}</span>`
+      ? `<span class="role-badge role-member">ð­ ${esc(myRole.name)}</span>`
       : (roles.length === 0
-          ? `<span class="role-badge" style="background:#EEF2FF;color:#5B5FEF">👥 Alle</span>`
+          ? `<span class="role-badge" style="background:#EEF2FF;color:#5B5FEF">ð¥ Alle</span>`
           : '');
     return `<div class="my-event-row" style="border-left-color:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
       <div class="my-event-date-badge"><div class="day">${d.getDate()}</div><div class="mon">${d.toLocaleDateString('de-DE',{month:'short'})}</div></div>
       <div style="flex:1"><div class="my-event-title">${roleLightHTML(ev,'lg')}${esc(ev.title)}</div><div class="my-event-meta">${ev.time?ev.time.slice(0,5):''}</div></div>
       ${badge}
     </div>`;
-  }).join('') || '<div class="no-events">Keine anstehenden Termine für dich</div>';
+  }).join('') || '<div class="no-events">Keine anstehenden Termine fÃ¼r dich</div>';
 }
 
-// ── Termin-Modal ─────────────────────────────────────────────
+// ââ Termin-Modal âââââââââââââââââââââââââââââââââââââââââââââ
 function buildEventColorPicker(currentColor) {
   const p = document.getElementById('eventColorPicker');
   p.innerHTML = CAL_COLORS.map(c =>
@@ -1321,7 +1330,7 @@ window.openEventModal = id => {
   modal.querySelectorAll('input, textarea').forEach(el => { el.disabled = readOnly; });
   const saveBtn = modal.querySelector('.modal-actions .btn-primary');
   if (saveBtn) { saveBtn.disabled = readOnly; saveBtn.style.opacity = readOnly ? '.4' : ''; saveBtn.style.cursor = readOnly ? 'not-allowed' : ''; }
-  // Sharing-Abschnitt nur für eigene (nicht-read-only) Termine des aktuellen Nutzers
+  // Sharing-Abschnitt nur fÃ¼r eigene (nicht-read-only) Termine des aktuellen Nutzers
   const shareSec = document.getElementById('evShareSection');
   if (shareSec) {
     if (readOnly) {
@@ -1339,7 +1348,7 @@ async function refreshEventShareUI(eventId) {
   const list = document.getElementById('evShareList');
   const sel  = document.getElementById('evShareTarget');
   if (!list || !sel) return;
-  list.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Lädt...</div>';
+  list.innerHTML = '<div style="color:var(--text-muted);font-size:12px">LÃ¤dt...</div>';
   sel.innerHTML = '';
   try {
     const [shares, cals] = await Promise.all([
@@ -1352,11 +1361,11 @@ async function refreshEventShareUI(eventId) {
     } else {
       list.innerHTML = shares.map(s => {
         const label = s.target_user_id
-          ? `👤 ${esc((s.profiles?.firstname ?? '') + ' ' + (s.profiles?.lastname ?? ''))} (privater Kalender)`
-          : `📅 ${esc(s.calendars?.name ?? 'Kalender')}`;
+          ? `ð¤ ${esc((s.profiles?.firstname ?? '') + ' ' + (s.profiles?.lastname ?? ''))} (privater Kalender)`
+          : `ð ${esc(s.calendars?.name ?? 'Kalender')}`;
         return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px;font-size:13px">
           <span style="flex:1">${label}</span>
-          <button type="button" class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="removeEventShare('${s.id}','${eventId}')">✕</button>
+          <button type="button" class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="removeEventShare('${s.id}','${eventId}')">â</button>
         </div>`;
       }).join('');
     }
@@ -1366,11 +1375,11 @@ async function refreshEventShareUI(eventId) {
     const srcCal = ev?.__calId || ev?.calendar_id;
     const optsCal = cals
       .filter(c => !c.readOnly && !c.is_personal && c.myStatus === 'accepted' && c.id !== srcCal)
-      .map(c => `<option value="cal:${c.id}">📅 ${esc(c.name)}</option>`);
+      .map(c => `<option value="cal:${c.id}">ð ${esc(c.name)}</option>`);
     const optsUser = (allProfiles || [])
       .filter(p => p.id !== currentUser.id)
-      .map(p => `<option value="usr:${p.id}">👤 ${esc((p.firstname ?? '') + ' ' + (p.lastname ?? ''))}</option>`);
-    sel.innerHTML = `<option value="">– Ziel wählen –</option>` + optsCal.join('') + optsUser.join('');
+      .map(p => `<option value="usr:${p.id}">ð¤ ${esc((p.firstname ?? '') + ' ' + (p.lastname ?? ''))}</option>`);
+    sel.innerHTML = `<option value="">â Ziel wÃ¤hlen â</option>` + optsCal.join('') + optsUser.join('');
   } catch (err) {
     list.innerHTML = `<div style="color:var(--accent);font-size:12px">Fehler: ${esc(err.message)}</div>`;
   }
@@ -1454,19 +1463,19 @@ async function refreshActiveCalendars() {
 
 window.deleteEvent = async () => {
   if (!editingEventId) return;
-  if (!confirm('Termin wirklich löschen?')) return;
+  if (!confirm('Termin wirklich lÃ¶schen?')) return;
   try {
     await DB.deleteEvent(editingEventId);
     closeEventModal();
     await refreshActiveCalendars();
     renderCurrentView();
-    showToast('Termin gelöscht.');
+    showToast('Termin gelÃ¶scht.');
   } catch (err) {
     showToast('Fehler: ' + err.message, 'error');
   }
 };
 
-// ── Rollen ───────────────────────────────────────────────────
+// ââ Rollen âââââââââââââââââââââââââââââââââââââââââââââââââââ
 function renderRolesList() {
   const members = (activeCalendarData?.members ?? [])
     .filter(m => m.status === 'accepted')
@@ -1484,9 +1493,9 @@ function renderRolesList() {
       <input class="role-name-select" value="${esc(r.name)}" placeholder="Rolle z.B. Moderator"
         onchange="updateRole(${i},'name',this.value)" />
       <select class="role-member-select" onchange="updateRole(${i},'assignedUserId',this.value)">
-        <option value="">— Niemand —</option>${opts}
+        <option value="">â Niemand â</option>${opts}
       </select>
-      <button class="role-remove-btn" onclick="removeRole(${i})">✕</button>
+      <button class="role-remove-btn" onclick="removeRole(${i})">â</button>
     </div>`;
   }).join('');
 }
@@ -1494,7 +1503,7 @@ window.addRoleRow     = () => { currentRoles.push({ name: '', assignedUserId: nu
 window.removeRole     = i => { currentRoles.splice(i, 1); renderRolesList(); };
 window.updateRole     = (i, field, val) => { currentRoles[i][field] = val || null; renderRolesList(); };
 
-// ── Einstellungen ─────────────────────────────────────────────
+// ââ Einstellungen âââââââââââââââââââââââââââââââââââââââââââââ
 window.openCalSettings = () => {
   settingsCalId = activeCalendarId;
   renderSettings('general');
@@ -1523,7 +1532,7 @@ function renderSettings(tab) {
         <div class="field"><label>Farbe</label><div class="color-picker" id="settingsColorPicker"></div></div>
       </div>
       <div class="settings-card">
-        <div class="settings-card-title">Universitäts-Semester</div>
+        <div class="settings-card-title">UniversitÃ¤ts-Semester</div>
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
           <label class="toggle-switch">
             <input type="checkbox" id="set-semester" ${calSemesterFlags.get(settingsCalId) ? 'checked' : ''} onchange="toggleSemesterFlag(this.checked)">
@@ -1533,14 +1542,14 @@ function renderSettings(tab) {
         </div>
         <div style="font-size:12px;color:var(--text-muted);line-height:1.5">
           Zeigt die offiziellen Vorlesungszeiten der JGU Mainz als farbige Streifen an:
-          <span style="color:#F59E0B;font-weight:600">■ Gelb</span> = Sommersemester,
-          <span style="color:#3B82F6;font-weight:600">■ Blau</span> = Wintersemester.
+          <span style="color:#F59E0B;font-weight:600">â  Gelb</span> = Sommersemester,
+          <span style="color:#3B82F6;font-weight:600">â  Blau</span> = Wintersemester.
           Markierungen am ersten und letzten Tag zeigen Semesterbeginn/-ende.
         </div>
       </div>
       <div class="settings-card" style="border-color:#FFD0D0">
         <div class="settings-card-title" style="color:var(--accent)">Gefahrenzone</div>
-        <button class="btn-danger" onclick="confirmDeleteCalendar()">🗑 Kalender löschen</button>
+        <button class="btn-danger" onclick="confirmDeleteCalendar()">ð Kalender lÃ¶schen</button>
       </div>`;
     // Farbpicker aufbauen
     const cp = document.getElementById('settingsColorPicker');
@@ -1561,9 +1570,9 @@ function renderSettings(tab) {
           const name = `${p.firstname??''} ${p.lastname??''}`.trim() || 'Unbekannt';
           return `<div class="member-row">
             <div class="member-ava">${p.avatar??'??'}</div>
-            <div class="member-info"><div class="name">${esc(name)}</div><div class="email">${m.status==='pending'?'⏳ Einladung ausstehend':''}</div></div>
+            <div class="member-info"><div class="name">${esc(name)}</div><div class="email">${m.status==='pending'?'â³ Einladung ausstehend':''}</div></div>
             <span class="role-badge ${{owner:'role-owner',admin:'role-admin',member:'role-member'}[m.role]??'role-member'}">${{owner:'Ersteller',admin:'Admin',member:'Mitglied'}[m.role]??'Mitglied'}</span>
-            ${canManage && m.user_id !== currentUser?.id ? `<button class="btn-danger" style="padding:5px 10px;font-size:11px" onclick="removeMemberUI('${m.user_id}')">✕</button>` : ''}
+            ${canManage && m.user_id !== currentUser?.id ? `<button class="btn-danger" style="padding:5px 10px;font-size:11px" onclick="removeMemberUI('${m.user_id}')">â</button>` : ''}
           </div>`;
         }).join('')}
       </div>`;
@@ -1585,18 +1594,18 @@ async function renderSharingTab() {
       <div class="settings-card-title">Kalender teilen</div>
       <div style="font-size:13px;color:var(--text-sub);margin-bottom:14px;line-height:1.5">
         Teile diesen Kalender mit einem anderen Kalender <strong>oder</strong> einem einzelnen Nutzer.
-        Empfänger dürfen die Termine <strong>nur lesen</strong>. An Nutzer freigegebene Kalender
-        erscheinen im privaten Kalender des Empfängers.
+        EmpfÃ¤nger dÃ¼rfen die Termine <strong>nur lesen</strong>. An Nutzer freigegebene Kalender
+        erscheinen im privaten Kalender des EmpfÃ¤ngers.
       </div>
       <div id="sharingList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        <div style="color:var(--text-muted);font-size:13px">Lädt...</div>
+        <div style="color:var(--text-muted);font-size:13px">LÃ¤dt...</div>
       </div>
       ${canShare ? `
         <div style="display:flex;gap:8px;align-items:center">
           <select id="shareTargetSelect" class="role-name-select" style="flex:1;padding:9px 12px"></select>
-          <button class="btn-primary" style="padding:9px 16px" onclick="shareWithSelected()">＋ Freigeben</button>
+          <button class="btn-primary" style="padding:9px 16px" onclick="shareWithSelected()">ï¼ Freigeben</button>
         </div>
-      ` : `<div style="font-size:13px;color:var(--text-muted)">Nur Admins oder der Ersteller können Freigaben verwalten.</div>`}
+      ` : `<div style="font-size:13px;color:var(--text-muted)">Nur Admins oder der Ersteller kÃ¶nnen Freigaben verwalten.</div>`}
     </div>`;
 
   try {
@@ -1613,11 +1622,11 @@ async function renderSharingTab() {
         const c = s.calendars;
         const p = s.profiles;
         const label = isUser
-          ? `👤 ${esc(((p?.firstname ?? '') + ' ' + (p?.lastname ?? '')).trim() || 'Nutzer')}`
-          : `📅 ${esc(c?.name || 'Kalender')}`;
+          ? `ð¤ ${esc(((p?.firstname ?? '') + ' ' + (p?.lastname ?? '')).trim() || 'Nutzer')}`
+          : `ð ${esc(c?.name || 'Kalender')}`;
         const sub   = isUser
           ? 'erscheint im privaten Kalender dieses Nutzers'
-          : 'Mitglieder dieses Kalenders können lesen';
+          : 'Mitglieder dieses Kalenders kÃ¶nnen lesen';
         const dot   = isUser ? '#5B5FEF' : (c?.color || '#999');
         return `<div class="member-row" style="padding:10px 12px;background:var(--bg);border-radius:var(--radius-sm);border-bottom:none">
           <div class="navbar-cal-dot" style="background:${dot};width:14px;height:14px;border-radius:50%"></div>
@@ -1625,7 +1634,7 @@ async function renderSharingTab() {
             <div class="name">${label}</div>
             <div class="email">${sub}</div>
           </div>
-          ${canShare ? `<button class="btn-danger" style="padding:5px 10px;font-size:11px" onclick="unshareCalendarUI('${s.id}')">✕ Entfernen</button>` : ''}
+          ${canShare ? `<button class="btn-danger" style="padding:5px 10px;font-size:11px" onclick="unshareCalendarUI('${s.id}')">â Entfernen</button>` : ''}
         </div>`;
       }).join('');
     }
@@ -1640,9 +1649,9 @@ async function renderSharingTab() {
       const userCands = (allProfiles || []).filter(p =>
         p.id !== currentUser.id && !alreadyUser.has(p.id)
       );
-      const optsCal  = calCands.map(c => `<option value="cal:${c.id}">📅 ${esc(c.name)}</option>`).join('');
-      const optsUser = userCands.map(p => `<option value="usr:${p.id}">👤 ${esc(((p.firstname ?? '') + ' ' + (p.lastname ?? '')).trim())}</option>`).join('');
-      sel.innerHTML = `<option value="">– Ziel wählen –</option>` + optsCal + optsUser;
+      const optsCal  = calCands.map(c => `<option value="cal:${c.id}">ð ${esc(c.name)}</option>`).join('');
+      const optsUser = userCands.map(p => `<option value="usr:${p.id}">ð¤ ${esc(((p.firstname ?? '') + ' ' + (p.lastname ?? '')).trim())}</option>`).join('');
+      sel.innerHTML = `<option value="">â Ziel wÃ¤hlen â</option>` + optsCal + optsUser;
       sel.disabled = !optsCal && !optsUser;
     }
   } catch (err) {
@@ -1670,7 +1679,7 @@ window.shareWithSelected = async () => {
 };
 
 window.unshareCalendarUI = async shareId => {
-  if (!confirm('Freigabe wirklich zurückziehen?')) return;
+  if (!confirm('Freigabe wirklich zurÃ¼ckziehen?')) return;
   try {
     await DB.unshareCalendar(shareId);
     showToast('Freigabe entfernt.');
@@ -1702,7 +1711,7 @@ window.saveSettings = async () => {
     const fresh = await DB.getCalendarDetails(settingsCalId);
     loadedCalendars.set(settingsCalId, fresh);
     if (settingsCalId === activeCalendarId) activeCalendarData = fresh;
-    // Auch die Kalender-Liste für die Auswahlleiste aktualisieren
+    // Auch die Kalender-Liste fÃ¼r die Auswahlleiste aktualisieren
     const idx = allCalendars.findIndex(c => c.id === settingsCalId);
     if (idx >= 0) allCalendars[idx] = { id: fresh.id, name: fresh.name, color: fresh.color };
     updateCalNavTitle();
@@ -1715,14 +1724,14 @@ window.saveSettings = async () => {
 };
 
 window.confirmDeleteCalendar = async () => {
-  if (!confirm(`Kalender "${activeCalendarData?.name}" wirklich löschen? Alle Termine werden gelöscht.`)) return;
+  if (!confirm(`Kalender "${activeCalendarData?.name}" wirklich lÃ¶schen? Alle Termine werden gelÃ¶scht.`)) return;
   try {
     await DB.deleteCalendar(settingsCalId);
     activeCalendarId   = null;
     activeCalendarData = null;
     closeSettings();
     await goHome();
-    showToast('Kalender gelöscht.');
+    showToast('Kalender gelÃ¶scht.');
   } catch (err) {
     showToast('Fehler: ' + err.message, 'error');
   }
@@ -1764,7 +1773,7 @@ window.removeMemberUI = async userId => {
   }
 };
 
-// ── App starten ───────────────────────────────────────────────
+// ââ App starten âââââââââââââââââââââââââââââââââââââââââââââââ
 DB.onAuthChange(async user => {
   if (user) {
     const fullUser = await DB.getCurrentUser();
