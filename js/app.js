@@ -20,6 +20,125 @@ let viewWeek = null, selectedDay = null, calView = 'month', editingEventId = nul
 let currentRoles = [];
 let settingsCalId = null;
 
+// ── JGU Mainz Semesterzeiten ────────────────────────────────
+// Semester-Einstellung pro Kalender (Map: calId -> boolean)
+let calSemesterFlags = new Map();
+// Cache für Semesterzeiten
+let semesterCache = null;
+let semesterCacheTS = 0;
+const SEMESTER_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 h
+
+// Fallback-Daten (werden bei erfolgreichem Scrape überschrieben)
+const SEMESTER_FALLBACK = [
+  { type:'winter', label:'Wintersemester 2025/2026', start:'2025-10-27', end:'2026-02-14' },
+  { type:'summer', label:'Sommersemester 2026',      start:'2026-04-13', end:'2026-07-11' },
+  { type:'winter', label:'Wintersemester 2026/2027', start:'2026-10-19', end:'2027-02-13' },
+  { type:'summer', label:'Sommersemester 2027',      start:'2027-04-12', end:'2027-07-10' },
+  { type:'winter', label:'Wintersemester 2027/2028', start:'2027-10-18', end:'2028-02-12' },
+];
+
+/**
+ * Semester-Daten von JGU Mainz laden.
+ * Scraping-Proxy via Supabase Edge Function oder direkter Fetch.
+ * Fällt bei Fehler auf die hartcodierten Daten zurück.
+ */
+async function fetchSemesterData() {
+  const now = Date.now();
+  if (semesterCache && (now - semesterCacheTS) < SEMESTER_CACHE_TTL) return semesterCache;
+
+  try {
+    const resp = await fetch('https://www.studium.uni-mainz.de/mein-studium/fristen-termine/');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const html = await resp.text();
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const tables = doc.querySelectorAll('table');
+    const semesters = [];
+
+    tables.forEach(t => {
+      const rows = Array.from(t.querySelectorAll('tr'));
+      if (rows.length < 3) return;
+      const header = rows[0]?.textContent?.trim() || '';
+      let type = null, label = header;
+      if (/wintersemester/i.test(header)) type = 'winter';
+      else if (/sommersemester/i.test(header)) type = 'summer';
+      if (!type) return;
+
+      let start = null, end = null;
+      for (const row of rows) {
+        const cells = Array.from(row.querySelectorAll('td'));
+        if (cells.length < 2) continue;
+        const dateStr = cells[0].textContent.trim();
+        const desc    = cells[1].textContent.trim();
+        if (/Vorlesungsbeginn/i.test(desc) && !start) {
+          start = parseDEDate(dateStr);
+        }
+        // Nimm das erste "Vorlesungsende" (nicht Medizin-Sondertermin)
+        if (/Vorlesungsende/i.test(desc) && !end) {
+          end = parseDEDate(dateStr);
+        }
+      }
+      if (type && start && end) semesters.push({ type, label, start, end });
+    });
+
+    if (semesters.length >= 2) {
+      semesterCache   = semesters;
+      semesterCacheTS = now;
+      try { localStorage.setItem('jgu_semesters', JSON.stringify(semesters)); } catch {}
+      return semesters;
+    }
+  } catch (e) {
+    console.warn('JGU Semesterzeiten Scraping fehlgeschlagen:', e.message);
+  }
+
+  // Fallback: localStorage oder hartcodiert
+  try {
+    const stored = JSON.parse(localStorage.getItem('jgu_semesters') || 'null');
+    if (stored && stored.length >= 2) { semesterCache = stored; semesterCacheTS = now; return stored; }
+  } catch {}
+  semesterCache   = SEMESTER_FALLBACK;
+  semesterCacheTS = now;
+  return SEMESTER_FALLBACK;
+}
+
+/** Deutsches Datum "dd.mm.yyyy" → "yyyy-mm-dd" */
+function parseDEDate(s) {
+  const m = s.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+
+/** Prüft ob ein Datum in einem Semester liegt. Gibt Semester-Objekt oder null zurück. */
+function getSemesterForDate(ds) {
+  if (!semesterCache) return null;
+  for (const sem of semesterCache) {
+    if (ds >= sem.start && ds <= sem.end) return sem;
+  }
+  return null;
+}
+
+/** Prüft ob für mindestens einen aktiven Kalender die Semester-Anzeige aktiviert ist */
+function isSemesterEnabled() {
+  for (const id of activeCalendarIds) {
+    if (calSemesterFlags.get(id)) return true;
+  }
+  // Auch einzelnen aktiven Kalender prüfen
+  if (activeCalendarId && calSemesterFlags.get(activeCalendarId)) return true;
+  return false;
+}
+
+/** Semester-Flag aus localStorage laden */
+function loadSemesterFlags() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('cal_semester_flags') || '{}');
+    calSemesterFlags = new Map(Object.entries(stored));
+  } catch { calSemesterFlags = new Map(); }
+}
+
+/** Semester-Flag in localStorage speichern */
+function saveSemesterFlags() {
+  const obj = Object.fromEntries(calSemesterFlags);
+  try { localStorage.setItem('cal_semester_flags', JSON.stringify(obj)); } catch {}
+}
+
 // ── Hilfsfunktionen ──────────────────────────────────────────
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const toDateStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -227,6 +346,9 @@ async function enterApp(user) {
   currentUser = user;
   // Privaten Kalender sicherstellen (Backfill für Altnutzer)
   try { await DB.ensurePersonalCalendar(user.id); } catch (_) {}
+  // Semester-Flags und -Daten laden
+  loadSemesterFlags();
+  fetchSemesterData(); // im Hintergrund
   // Profile für Mitglieder-Anzeige vorladen
   allProfiles = await DB.getProfiles().catch(() => []);
 
@@ -734,9 +856,13 @@ function renderMonth() {
       const ds   = toDateStr(d);
       const otherMonth = d.getMonth() !== viewMonth;
       const dayEvs = events.filter(e => e.date === ds || (e.date <= ds && e.date_end >= ds));
-      const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ');
+      // Semester-Overlay
+      const semM = isSemesterEnabled() ? getSemesterForDate(ds) : null;
+      const semClsM = semM ? (semM.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
+      const semBadge = semM ? (ds === semM.start ? '<div class="sem-badge sem-badge-start">Semester Anfang</div>' : ds === semM.end ? '<div class="sem-badge sem-badge-end">Semester Ende</div>' : '') : '';
+      const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semClsM;
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
-        <div class="day-num">${d.getDate()}</div>
+        <div class="day-num">${d.getDate()}</div>${semBadge}
         ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
         ${dayEvs.length > 3 ? `<div class="ev-more">+${dayEvs.length-3} mehr</div>` : ''}
       </div>`;
@@ -798,13 +924,17 @@ function renderYearView() {
         const evs  = valid ? events.filter(e => e.date === ds || (e.date_end && e.date <= ds && e.date_end >= ds)) : [];
         const isToday = ds === today && valid;
         const sunHol  = valid && isSunOrHol(ds);
-        const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ');
+        // Semester-Overlay prüfen
+        const semY = valid && isSemesterEnabled() ? getSemesterForDate(ds) : null;
+        const semCls = semY ? (semY.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
+        const semHint = semY && valid ? (ds === semY.start ? '<div class="sem-hint sem-start">▶ Semester</div>' : ds === semY.end ? '<div class="sem-hint sem-end">◀ Sem.Ende</div>' : '') : '';
+        const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
         const handler = valid ? `onclick="selectDayYear('${ds}')"` : '';
         const hasEv = evs.length > 0;
         const rs = hasEv ? getRoleStatus(evs[0]) : 'none';
         const dotColor = rs === 'full' ? '#22C55E' : rs === 'open' ? '#EF4444' : (evs[0]?.color || activeCalendarData?.color || '#5B5FEF');
         const dot = hasEv ? `<div class="mini-day-dot" style="background:${dotColor}"></div>` : '';
-        dayCells += `<div class="${cls}" ${handler}><span class="mini-day-num">${valid?d.getDate():''}</span>${dot}</div>`;
+        dayCells += `<div class="${cls}" ${handler}><span class="mini-day-num">${valid?d.getDate():''}</span>${dot}${semHint}</div>`;
         day++;
       }
       // Abbruch, wenn Monat fertig und keine weiteren Tage mehr kommen
@@ -854,7 +984,9 @@ function renderWeekView() {
 
   document.getElementById('weekDayHeaders').innerHTML = days.map(ds => {
     const d   = new Date(ds+'T00:00:00');
-    const cls = ['week-day-header', ds===today?'today-col':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ');
+    const semH = isSemesterEnabled() ? getSemesterForDate(ds) : null;
+    const semHCls = semH ? (semH.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
+    const cls = ['week-day-header', ds===today?'today-col':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semHCls;
     return `<div class="${cls}">
       <div class="wdh-dow">${d.toLocaleDateString('de-DE',{weekday:'short'})}</div>
       <div class="wdh-num">${d.getDate()}</div>
@@ -900,7 +1032,11 @@ function renderWeekView() {
       const dur = ev.time_end ? (() => { const [eh,em]=(ev.time_end||'01:00').split(':').map(Number); const d=((eh*60+em)-(hh*60+mm))/60*H; return Math.min(d, (HOURS*H)-top); })() : H;
       return `<div class="week-event-block" style="top:${top}px;height:${Math.max(dur,20)}px;left:4px;right:4px;background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`;
     }).join('');
-    return `<div class="week-day-col${todayCls}${sunHolCls}" style="height:${HOURS*H}px">${lines}${blocks}</div>`;
+    // Semester-Streifen in Wochenansicht
+    const semW = isSemesterEnabled() ? getSemesterForDate(ds) : null;
+    const semWCls = semW ? (semW.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
+    const semWBadge = semW ? (ds === semW.start ? '<div class="sem-week-badge sem-badge-start">Semester Anfang</div>' : ds === semW.end ? '<div class="sem-week-badge sem-badge-end">Semester Ende</div>' : '') : '';
+    return `<div class="week-day-col${todayCls}${sunHolCls}${semWCls}" style="height:${HOURS*H}px">${lines}${blocks}${semWBadge}</div>`;
   }).join('');
 
   if (earlyRow) earlyRow.innerHTML = earlyHtml;
@@ -935,8 +1071,16 @@ function renderDayView() {
   col.style.position = 'relative';
   col.style.height   = HOURS*H + 'px';
   col.classList.toggle('is-sun-hol', isSunOrHol(ds));
+  // Semester-Streifen in Tagesansicht
+  const semD = isSemesterEnabled() ? getSemesterForDate(ds) : null;
+  col.classList.toggle('sem-summer', semD?.type === 'summer');
+  col.classList.toggle('sem-winter', semD?.type === 'winter');
   const dayHdrEl = document.getElementById('dayViewHeader');
   if (dayHdrEl) dayHdrEl.classList.toggle('is-sun-hol', isSunOrHol(ds));
+  if (dayHdrEl) {
+    dayHdrEl.classList.toggle('sem-summer', semD?.type === 'summer');
+    dayHdrEl.classList.toggle('sem-winter', semD?.type === 'winter');
+  }
 
   const timed    = events.filter(e => e.time);
   const earlyEvs = timed.filter(e => { const h=parseInt((e.time||'0').split(':')[0],10); return h < CAL_START_HOUR; });
@@ -1266,6 +1410,22 @@ function renderSettings(tab) {
         <div class="field" style="margin-bottom:14px"><label>Beschreibung</label><textarea id="set-desc" rows="2" style="padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;resize:none;outline:none">${esc(cal?.description??'')}</textarea></div>
         <div class="field"><label>Farbe</label><div class="color-picker" id="settingsColorPicker"></div></div>
       </div>
+      <div class="settings-card">
+        <div class="settings-card-title">Universitäts-Semester</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <label class="toggle-switch">
+            <input type="checkbox" id="set-semester" ${calSemesterFlags.get(settingsCalId) ? 'checked' : ''} onchange="toggleSemesterFlag(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:14px;color:var(--text)">JGU Mainz Vorlesungszeiten anzeigen</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">
+          Zeigt die offiziellen Vorlesungszeiten der JGU Mainz als farbige Streifen an:
+          <span style="color:#F59E0B;font-weight:600">■ Gelb</span> = Sommersemester,
+          <span style="color:#3B82F6;font-weight:600">■ Blau</span> = Wintersemester.
+          Markierungen am ersten und letzten Tag zeigen Semesterbeginn/-ende.
+        </div>
+      </div>
       <div class="settings-card" style="border-color:#FFD0D0">
         <div class="settings-card-title" style="color:var(--accent)">Gefahrenzone</div>
         <button class="btn-danger" onclick="confirmDeleteCalendar()">🗑 Kalender löschen</button>
@@ -1406,6 +1566,13 @@ window.unshareCalendarUI = async shareId => {
   } catch (err) {
     showToast('Fehler: ' + err.message, 'error');
   }
+};
+
+window.toggleSemesterFlag = (on) => {
+  calSemesterFlags.set(settingsCalId, on);
+  saveSemesterFlags();
+  // Semester-Daten vorladen wenn aktiviert
+  if (on) fetchSemesterData();
 };
 
 window.selectSettingsColor = (color, el) => {
