@@ -205,12 +205,51 @@ function getRLPHolidays(year) {
   _holidayCache.set(year, set);
   return set;
 }
+const _occasionCache = new Map();
+function getRLPOccasions(year) {
+  if (_occasionCache.has(year)) return _occasionCache.get(year);
+  const easter = easterSunday(year);
+  const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return toDateStr(x); };
+  const may1 = new Date(year, 4, 1);
+  const muttertag = new Date(year, 4, 1 + (7 - may1.getDay()) % 7 + 7);
+  const nov23 = new Date(year, 10, 23);
+  const bbt = new Date(year, 10, 23 - ((nov23.getDay() + 4) % 7));
+  const map = new Map([
+    [addD(easter, -52), 'Weiberfastnacht'],
+    [addD(easter, -48), 'Rosenmontag'],
+    [addD(easter, -47), 'Fastnacht'],
+    [addD(easter, -46), 'Aschermittwoch'],
+    [addD(easter, -3),  'Gründonnerstag'],
+    [addD(easter, 0),   'Ostersonntag'],
+    [addD(easter, 49),  'Pfingstsonntag'],
+    [`${year}-02-14`,   'Valentinstag'],
+    [toDateStr(muttertag), 'Muttertag'],
+    [`${year}-10-31`,   'Halloween'],
+    [`${year}-11-11`,   'St. Martin'],
+    [toDateStr(bbt),    'Buß- & Bettag'],
+    [`${year}-12-06`,   'Nikolaus'],
+    [`${year}-12-24`,   'Heiligabend'],
+    [`${year}-12-31`,   'Silvester'],
+  ]);
+  _occasionCache.set(year, map);
+  return map;
+}
 function isHoliday(ds) {
   if (!ds || typeof ds !== 'string') return false;
   const y = parseInt(ds.slice(0, 4), 10);
   return getRLPHolidays(y).has(ds);
 }
 // Sonntag oder Feiertag? ds = 'YYYY-MM-DD'
+function getHolidayName(ds) {
+  if (!ds) return null;
+  const y = parseInt(ds.slice(0, 4), 10);
+  return getRLPHolidays(y).get(ds) || null;
+}
+function getOccasionName(ds) {
+  if (!ds) return null;
+  const y = parseInt(ds.slice(0, 4), 10);
+  return getRLPOccasions(y).get(ds) || null;
+}
 function isSunOrHol(ds) {
   if (!ds) return false;
   const d = new Date(ds + 'T00:00:00');
@@ -965,13 +1004,22 @@ function renderYearView() {
         const evs  = valid ? events.filter(e => e.date === ds || (e.date_end && e.date <= ds && e.date_end >= ds)) : [];
         const isToday = ds === today && valid;
         const sunHol  = valid && isSunOrHol(ds);
+        const holName = valid ? getHolidayName(ds) : null;
+        const occName = valid ? getOccasionName(ds) : null;
         // Semester-Overlay
         const semY = valid && isSemesterEnabled() ? getSemesterForDate(ds) : null;
         const semCls = semY ? (semY.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
-        const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
+                const cls = ['mini-day', isToday?'today-mini':'', sunHol?'is-sun-hol':'', holName?'is-holiday':'', occName?'is-occasion':'', !valid?'mini-day-empty':''].filter(Boolean).join(' ') + semCls;
         const handler = valid ? `onclick="selectDayYear('${ds}')"` : '';
 
         // Event representations for 3 zoom levels
+        let holEntry = '';
+        if (holName) {
+          holEntry = `<div class="mev-dot hol-dot"></div><div class="mev-bar hol-bar"></div><div class="mev-text hol-label">${esc(holName)}</div>`;
+        } else if (occName) {
+          holEntry = `<div class="mev-dot occ-dot"></div><div class="mev-bar occ-bar"></div><div class="mev-text occ-label">${esc(occName)}</div>`;
+        }
+
         let evContent = '';
         if (evs.length > 0) {
           evContent = evs.slice(0, 3).map(ev => {
@@ -993,7 +1041,7 @@ function renderYearView() {
 
         dayCells += `<div class="${cls}" ${handler}>
           <span class="mini-day-num">${valid ? d.getDate() : ''}</span>
-          <div class="mini-day-content">${semEntry}${evContent}</div>
+          <div class="mini-day-content">${holEntry}${semEntry}${evContent}</div>
         </div>`;
         day++;
       }
