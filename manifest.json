@@ -1,6 +1,6 @@
 {
   "name": "Team Kalender",
-  "short_name": "Kalender",
+  "short_name": "Team-Kalender",
   "description": "Gemeinsame Terminplanung für dein Team",
   "start_url": "/",
   "display": "standalone",
