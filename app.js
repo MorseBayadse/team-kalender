@@ -918,8 +918,12 @@ function renderMonth() {
       const semClsM = semM ? (semM.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
       const semEntry = semM ? (ds === semM.start ? '<div class="ev-pill sem-pill sem-pill-start" onclick="event.stopPropagation()">▶ Semesteranfang</div>' : ds === semM.end ? '<div class="ev-pill sem-pill sem-pill-end" onclick="event.stopPropagation()">◀ Semesterende</div>' : '') : '';
       const cls = ['cal-day', otherMonth?'other-month':'', ds===today?'today':'', ds===selectedDay?'selected':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semClsM;
+      const holNameM = getHolidayName(ds);
+      const occNameM = !holNameM ? getOccasionName(ds) : null;
+      const holLabelM = holNameM ? `<div class="month-hol-label">${esc(holNameM)}</div>` : occNameM ? `<div class="month-occ-label">${esc(occNameM)}</div>` : '';
       html += `<div class="${cls}" onclick="selectDay('${ds}')">
         <div class="day-num">${d.getDate()}</div>
+        ${holLabelM}
         ${semEntry}
         ${dayEvs.slice(0,3).map(ev => `<div class="ev-pill" style="background:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="event.stopPropagation();openEventModal('${ev.id}')">${roleLightHTML(ev)}${esc(ev.title)}</div>`).join('')}
         ${dayEvs.length > 3 ? `<div class="ev-more">+${dayEvs.length-3} mehr</div>` : ''}
@@ -942,8 +946,11 @@ function renderDayPanel(ds) {
   const dayEvs  = getEvents().filter(e => e.date === ds || (e.date <= ds && e.date_end >= ds));
   const addBtn  = document.getElementById('dayPanelAdd');
   if (addBtn) addBtn.style.display = 'flex';
-  document.getElementById('dayPanelTitle').textContent =
-    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
+  const holNameP = getHolidayName(ds);
+  const occNameP = !holNameP ? getOccasionName(ds) : null;
+  const holPanelLabel = holNameP ? ` · <span class="day-hol-label">${esc(holNameP)}</span>` : occNameP ? ` · <span class="day-occ-label">${esc(occNameP)}</span>` : '';
+  document.getElementById('dayPanelTitle').innerHTML =
+    'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' }) + holPanelLabel;
   document.getElementById('dayEvents').innerHTML = dayEvs.length === 0
     ? '<div class="no-events">Keine Termine</div>'
     : dayEvs.map(ev => `<div class="day-event-item" style="border-left-color:${ev.color||activeCalendarData?.color||'#5B5FEF'}" onclick="openEventModal('${ev.id}')">
@@ -1106,10 +1113,14 @@ function renderWeekView() {
     const d   = new Date(ds+'T00:00:00');
     const semH = isSemesterEnabled() ? getSemesterForDate(ds) : null;
     const semHCls = semH ? (semH.type === 'summer' ? ' sem-summer' : ' sem-winter') : '';
+    const holNameW = getHolidayName(ds);
+    const occNameW = !holNameW ? getOccasionName(ds) : null;
+    const holLabelW = holNameW ? `<div class="week-hol-label">${esc(holNameW)}</div>` : occNameW ? `<div class="week-occ-label">${esc(occNameW)}</div>` : '';
     const cls = ['week-day-header', ds===today?'today-col':'', isSunOrHol(ds)?'is-sun-hol':''].filter(Boolean).join(' ') + semHCls;
     return `<div class="${cls}">
       <div class="wdh-dow">${d.toLocaleDateString('de-DE',{weekday:'short'})}</div>
       <div class="wdh-num">${d.getDate()}</div>
+      ${holLabelW}
     </div>`;
   }).join('');
 
@@ -1181,9 +1192,13 @@ function renderDayView() {
     'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   // Semester-Info für Tagesansicht
   const semD = isSemesterEnabled() ? getSemesterForDate(ds) : null;
-  const semDayLabel = semD ? (ds === semD.start ? ' · ▶ Semesteranfang' : ds === semD.end ? ' · ◀ Semesterende' : ` · ${semD.label}`) : '';
+  const semDayLabel = semD? (ds === semD.start ? ' · ▶ Semesteranfang' : ds === semD.end ? ' · ◀ Semesterende' : ` · ${semD.label}`) : '';
+  const holNameD = getHolidayName(ds);
+  const occNameD = !holNameD ? getOccasionName(ds) : null;
+  const holDayLabel = holNameD ? ` · <span class="day-hol-label">${esc(holNameD)}</span>` : occNameD ? ` · <span class="day-occ-label">${esc(occNameD)}</span>` : '';
   const dayHdrEl = document.getElementById('dayViewHeader');
   dayHdrEl.innerHTML = 'KW ' + isoWeek(d) + ' · ' + d.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})
+    + holDayLabel
     + (semDayLabel ? `<span class="day-sem-label ${semD.type === 'summer' ? 'sem-label-summer' : 'sem-label-winter'}">${semDayLabel}</span>` : '');
 
   let timecol = '';
@@ -1362,7 +1377,8 @@ async function refreshEventShareUI(eventId) {
       list.innerHTML = shares.map(s => {
         const label = s.target_user_id
           ? `👤 ${esc((s.profiles?.firstname ?? '') + ' ' + (s.profiles?.lastname ?? ''))} (privater Kalender)`
-          : `📅 ${esc(s.calendars?.name ?? 'Kalender')}`;
+          : `�
+ ${esc(s.calendars?.name ?? 'Kalender')}`;
         return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px;font-size:13px">
           <span style="flex:1">${label}</span>
           <button type="button" class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="removeEventShare('${s.id}','${eventId}')">✕</button>
