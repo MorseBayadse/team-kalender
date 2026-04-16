@@ -1,0 +1,29 @@
+# Sensible Daten – niemals in Git!
+.env
+.env.local
+.env.*.local
+
+# System
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Node
+node_modules/
+dist/
+
+# Electron
+platforms/desktop/node_modules/
+platforms/desktop/dist/
+
+# Capacitor – native Projekte (werden lokal generiert)
+platforms/mobile/node_modules/
+platforms/mobile/ios/
+platforms/mobile/android/
+
+# Build-Artefakte
+*.tgz
+*.log

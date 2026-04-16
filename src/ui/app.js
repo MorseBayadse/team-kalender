@@ -2,7 +2,7 @@
 // APP.JS – Team Kalender App (Supabase Edition)
 // ============================================================
 
-import * as DB from './db.js';
+import * as DB from '../core/api.js';
 
 // ── Globaler App-Zustand ─────────────────────────────────────
 let currentUser = null;

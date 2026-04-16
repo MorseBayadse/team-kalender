@@ -1,0 +1,31 @@
+{
+  "name": "team-kalender-app",
+  "version": "1.0.0",
+  "description": "Team Kalender – Cross-Platform App (Web, Desktop, iOS, Android)",
+  "private": true,
+  "scripts": {
+    "start": "npx serve src",
+    "dev": "npx serve src --listen 3000",
+
+    "build:web": "./scripts/build-web.sh",
+    "build:desktop": "./scripts/build-desktop.sh",
+    "build:mobile": "./scripts/build-mobile.sh",
+
+    "desktop:start": "cd platforms/desktop && npm start",
+    "desktop:build": "./scripts/build-desktop.sh",
+    "desktop:build:mac": "./scripts/build-desktop.sh mac",
+    "desktop:build:win": "./scripts/build-desktop.sh win",
+    "desktop:build:linux": "./scripts/build-desktop.sh linux",
+
+    "mobile:init": "./scripts/build-mobile.sh init",
+    "mobile:sync": "./scripts/build-mobile.sh sync",
+    "mobile:ios": "./scripts/build-mobile.sh ios",
+    "mobile:android": "./scripts/build-mobile.sh android",
+    "mobile:run:ios": "./scripts/build-mobile.sh run:ios",
+    "mobile:run:android": "./scripts/build-mobile.sh run:android",
+
+    "deploy:web": "cd dist/web && npx vercel --prod"
+  },
+  "keywords": ["kalender", "team", "cross-platform", "capacitor", "electron"],
+  "license": "UNLICENSED"
+}

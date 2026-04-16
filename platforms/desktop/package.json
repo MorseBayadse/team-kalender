@@ -1,0 +1,46 @@
+{
+  "name": "team-kalender-desktop",
+  "version": "1.0.0",
+  "description": "Team Kalender – Desktop App (Electron)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder --mac --win --linux"
+  },
+  "build": {
+    "appId": "com.teamkalender.app",
+    "productName": "Team Kalender",
+    "directories": {
+      "output": "../../dist/desktop"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../../src/**/*",
+      "../../assets/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "../../assets/icons/icon-512.png",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "icon": "../../assets/icons/icon-512.png",
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "icon": "../../assets/icons/icon-512.png",
+      "target": ["AppImage", "deb"]
+    }
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
