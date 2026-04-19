@@ -83,14 +83,6 @@ export async function findProfileByEmail(email) {
   return data[0];
 }
 
-/** Nutzer per Auth-E-Mail über RPC suchen */
-export async function findUserByEmail(email) {
-  const { data, error } = await supabase.rpc('find_user_by_email', { p_email: email });
-  if (error || !data) return null;
-  return data;
-}
-
-
 // ── KALENDER ─────────────────────────────────────────────────
 
 /**
