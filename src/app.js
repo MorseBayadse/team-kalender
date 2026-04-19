@@ -1980,12 +1980,15 @@ async function inviteByEmail(email) {
 function showInviteMailDialog(email, calendarName, inviteUrl) {
   const senderName = `${currentUser.firstname} ${currentUser.lastname}`;
   const subject = encodeURIComponent(`Einladung zum Team-Kalender: ${calendarName}`);
+  const anleitungUrl = `${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, '/')}assets/Team-Kalender_Benutzeranleitung.pdf`;
   const body = encodeURIComponent(
     `Hallo,\n\n` +
     `${senderName} hat dich zum Kalender "${calendarName}" in der Team-Kalender App eingeladen.\n\n` +
     `Klicke auf den folgenden Link, um die Einladung anzunehmen:\n` +
     `${inviteUrl}\n\n` +
     `Falls du noch kein Konto hast, kannst du dich über den Link kostenlos registrieren.\n\n` +
+    `Eine Anleitung zur App findest du hier:\n` +
+    `${anleitungUrl}\n\n` +
     `Viele Grüße,\n${senderName}`
   );
   const mailtoLink = `mailto:${email}?subject=${subject}&body=${body}`;
