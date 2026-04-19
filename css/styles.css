@@ -211,15 +211,18 @@
 
 /* Mobile: Modal passt auf kleine Bildschirme, Layout bleibt wie Desktop */
 @media (max-width: 600px) {
-  .modal-backdrop { padding: 10px; }
-  .modal { max-width: 100%; max-height: calc(100vh - 20px); }
-  .modal-header { padding: 20px 18px 16px; }
-  .modal-form { padding: 20px 18px; gap: 16px; }
-  .modal-actions { padding: 14px 18px 16px; }
+  .modal-backdrop { padding: 8px; }
+  .modal { max-width: 100%; max-height: calc(100vh - 16px); }
+  .modal-header { padding: 18px 16px 14px; }
+  .modal-form { padding: 18px 16px; gap: 14px; }
+  .modal-actions { padding: 12px 16px 14px; }
   .modal-form .field input,
   .modal-form .field textarea,
-  .modal-form .field select { font-size: 16px; padding: 10px 10px; }
+  .modal-form .field select { font-size: 16px; padding: 8px 8px; }
   .modal-form .field-row { gap: 10px; }
+  .modal-form .field-row .field { flex: 1 1 0; min-width: 0; max-width: calc(50% - 5px); overflow: hidden; }
+  .modal-form .field-row .field input[type="date"],
+  .modal-form .field-row .field input[type="time"] { font-size: 14px; padding: 8px 6px; width: 100%; }
   .modal-form .field label { font-size: 12px; }
 }
 
