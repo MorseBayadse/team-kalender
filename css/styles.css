@@ -209,11 +209,18 @@
   .day-sem-label { font-size: 10px; }
 }
 
-/* Mobile: nur font-size 16px um iOS-Zoom zu verhindern */
+/* Mobile: Modal passt auf kleine Bildschirme, Layout bleibt wie Desktop */
 @media (max-width: 600px) {
+  .modal-backdrop { padding: 10px; }
+  .modal { max-width: 100%; max-height: calc(100vh - 20px); }
+  .modal-header { padding: 20px 18px 16px; }
+  .modal-form { padding: 20px 18px; gap: 16px; }
+  .modal-actions { padding: 14px 18px 16px; }
   .modal-form .field input,
   .modal-form .field textarea,
-  .modal-form .field select { font-size: 16px; }
+  .modal-form .field select { font-size: 16px; padding: 10px 10px; }
+  .modal-form .field-row { gap: 10px; }
+  .modal-form .field label { font-size: 12px; }
 }
 
 /* iPhone / Small Mobile - Enhanced Touch & Layout */
