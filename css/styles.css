@@ -211,19 +211,44 @@
 
 /* Mobile: Modal passt auf kleine Bildschirme, Layout bleibt wie Desktop */
 @media (max-width: 600px) {
-  .modal-backdrop { padding: 8px; }
-  .modal { max-width: 100%; max-height: calc(100vh - 16px); }
-  .modal-header { padding: 18px 16px 14px; }
-  .modal-form { padding: 18px 16px; gap: 14px; }
-  .modal-actions { padding: 12px 16px 14px; }
+  .modal-backdrop { padding: 6px; }
+  .modal { max-width: 100%; max-height: calc(100vh - 12px); }
+  .modal-header { padding: 16px 14px 12px; }
+  .modal-form { padding: 14px; gap: 12px; }
+  .modal-actions { padding: 10px 14px 12px; }
+  .modal-form .field label { font-size: 12px; }
+
+  /* Alle Inputs kompakter */
   .modal-form .field input,
   .modal-form .field textarea,
-  .modal-form .field select { font-size: 16px; padding: 8px 8px; }
-  .modal-form .field-row { gap: 10px; }
-  .modal-form .field-row .field { flex: 1 1 0; min-width: 0; max-width: calc(50% - 5px); overflow: hidden; }
+  .modal-form .field select {
+    font-size: 16px;
+    padding: 9px 10px;
+  }
+
+  /* Feld-Reihen (Datum/Uhrzeit): exakt 50/50, kein Überlauf */
+  .modal-form .field-row {
+    display: flex;
+    gap: 12px;
+    overflow: hidden;
+  }
+  .modal-form .field-row .field {
+    flex: 0 0 calc(50% - 6px);
+    width: calc(50% - 6px);
+    max-width: calc(50% - 6px);
+    min-width: 0;
+    overflow: hidden;
+  }
   .modal-form .field-row .field input[type="date"],
-  .modal-form .field-row .field input[type="time"] { font-size: 14px; padding: 8px 6px; width: 100%; }
-  .modal-form .field label { font-size: 12px; }
+  .modal-form .field-row .field input[type="time"] {
+    font-size: 14px;
+    padding: 9px 4px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* iPhone / Small Mobile - Enhanced Touch & Layout */
