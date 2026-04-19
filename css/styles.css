@@ -209,28 +209,24 @@
   .day-sem-label { font-size: 10px; }
 }
 
-/* Mobile: Modal passt auf kleine Bildschirme, Layout bleibt wie Desktop */
+/* Mobile: Modal identisch zum Desktop, nur Breite angepasst */
 @media (max-width: 600px) {
   .modal-backdrop { padding: 6px; }
   .modal { max-width: 100%; max-height: calc(100vh - 12px); }
-  .modal-header { padding: 16px 14px 12px; }
-  .modal-form { padding: 14px; gap: 12px; }
-  .modal-actions { padding: 10px 14px 12px; }
-  .modal-form .field label { font-size: 12px; }
+  .modal-header { padding: 20px 16px 16px; }
+  .modal-form { padding: 20px 16px; gap: 18px; }
+  .modal-actions { padding: 14px 16px 16px; }
 
-  /* Alle Inputs kompakter */
+  /* font-size 16px verhindert iOS-Zoom, Rest identisch zum Desktop */
   .modal-form .field input,
   .modal-form .field textarea,
   .modal-form .field select {
     font-size: 16px;
-    padding: 9px 10px;
   }
 
-  /* Feld-Reihen (Datum/Uhrzeit): exakt 50/50, kein Überlauf */
+  /* Feld-Reihen: exakt 50/50 */
   .modal-form .field-row {
-    display: flex;
     gap: 12px;
-    overflow: hidden;
   }
   .modal-form .field-row .field {
     flex: 0 0 calc(50% - 6px);
@@ -239,15 +235,21 @@
     min-width: 0;
     overflow: hidden;
   }
-  .modal-form .field-row .field input[type="date"],
-  .modal-form .field-row .field input[type="time"] {
-    font-size: 14px;
-    padding: 9px 4px;
+
+  /* iOS Safari: native Styling entfernen, CSS-Rahmen erzwingen */
+  .modal-form .field input[type="date"],
+  .modal-form .field input[type="time"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    padding: 12px 14px;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    color: var(--text);
   }
 }
 
