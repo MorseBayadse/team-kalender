@@ -209,22 +209,11 @@
   .day-sem-label { font-size: 10px; }
 }
 
-/* Mobile: Modal & Neuer-Termin-Fenster optimiert */
+/* Mobile: nur font-size 16px um iOS-Zoom zu verhindern */
 @media (max-width: 600px) {
-  .modal-backdrop { padding: 10px; }
-  .modal { max-width: 100%; border-radius: var(--radius-lg); max-height: calc(100vh - 20px); }
-  .modal-header { padding: 18px 20px 14px; }
-  .modal-form { padding: 18px 20px; gap: 14px; }
-  .modal-actions { padding: 12px 20px 16px; }
-  .modal-form .field-row { flex-direction: column; gap: 10px; }
-  .modal-form .field-row .field { width: 100%; }
-  .modal-form .field { width: 100%; }
   .modal-form .field input,
   .modal-form .field textarea,
-  .modal-form .field select { font-size: 16px; padding: 12px 14px; }
-  /* Farbpunkte: gleichmäßig in einer Reihe, zentriert */
-  .color-picker { gap: 6px; justify-content: center; }
-  .color-dot { width: 26px; height: 26px; min-width: 22px; }
+  .modal-form .field select { font-size: 16px; }
 }
 
 /* iPhone / Small Mobile - Enhanced Touch & Layout */
@@ -266,12 +255,6 @@
   .ev-pill { font-size: 8px; }
   .week-day-header { font-size: 10px; }
   .navbar-title { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Modal: Farben noch kompakter */
-  .color-picker { gap: 4px; }
-  .color-dot { width: 24px; height: 24px; min-width: 20px; }
-  .modal-header { padding: 14px 16px 12px; }
-  .modal-form { padding: 14px 16px; gap: 12px; }
-  .modal-actions { padding: 10px 16px 14px; }
 }
 
 /* Android / Landscape adjustments */
