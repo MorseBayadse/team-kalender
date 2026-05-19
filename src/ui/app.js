@@ -412,7 +412,7 @@ async function enterApp(user) {
   document.getElementById('dropdownEmail').textContent = user.email;
 
   showScreen('home');
-  await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
+  await Promise.all([renderInvites(), renderCalendars(), renderMyEvents(), refreshTerminRequestBadge()]);
 }
 
 // ── ICS-Abo (Outlook/Apple Kalender) ─────────────────────────
@@ -692,7 +692,7 @@ window.goHome = async () => {
   loadedCalendars.clear();
   selectedDay = null;
   showScreen('home');
-  await Promise.all([renderInvites(), renderCalendars(), renderMyEvents()]);
+  await Promise.all([renderInvites(), renderCalendars(), renderMyEvents(), refreshTerminRequestBadge()]);
 };
 
 // Prüft ob der "primäre" Kalender (der Schreib-Ziel-Kalender) read-only ist
@@ -1955,6 +1955,416 @@ window.removeMemberUI = async userId => {
   }
 };
 
+// ────────────────────────────────────────────────────────────
+// TERMIN-ANFRAGEN zwischen Nutzern
+// ────────────────────────────────────────────────────────────
+//
+// Ein Initiator schlägt einen Termin vor und lädt einen ODER
+// mehrere Nutzer gleichzeitig ein. Jeder Empfänger antwortet
+// individuell (Zu-/Absage). Der Initiator entscheidet nach
+// Eingang der Rückmeldungen, ob der Termin bestätigt wird und
+// in welchen seiner Kalender er eingetragen wird.
+// ────────────────────────────────────────────────────────────
+
+let trqTab = 'incoming';                // aktuelle Tab-Auswahl im Inbox-Modal
+let trqCreateSelected = new Set();      // ausgewählte Empfänger-IDs beim Anlegen
+let trqCreateColor = null;              // übernimmt Farbe des Zielkalenders
+let trqLastData = { incoming: [], outgoing: [] };
+
+/** Badge am 📨-Button aktualisieren (Anzahl offener eingehender Anfragen). */
+async function refreshTerminRequestBadge() {
+  const badge = document.getElementById('trqBadge');
+  if (!badge || !currentUser) return;
+  try {
+    const n = await DB.countPendingTerminRequests(currentUser.id);
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (_) {
+    badge.style.display = 'none';
+  }
+}
+
+// ── Inbox-Modal ─────────────────────────────────────────────
+
+window.openTerminRequestsModal = async () => {
+  document.getElementById('trqInboxModal').classList.add('open');
+  await loadAndRenderTerminRequests();
+};
+window.closeTerminRequestsModal = () => {
+  document.getElementById('trqInboxModal').classList.remove('open');
+};
+
+window.setTerminRequestTab = tab => {
+  trqTab = tab;
+  document.getElementById('trqTabIn').classList.toggle('active',  tab === 'incoming');
+  document.getElementById('trqTabOut').classList.toggle('active', tab === 'outgoing');
+  renderTerminRequestList();
+};
+
+async function loadAndRenderTerminRequests() {
+  const list = document.getElementById('trqList');
+  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Lädt…</div>';
+  try {
+    trqLastData = await DB.getMyTerminRequests(currentUser.id);
+    document.getElementById('trqCountIn').textContent  = trqLastData.incoming.length || '';
+    document.getElementById('trqCountOut').textContent = trqLastData.outgoing.length || '';
+    renderTerminRequestList();
+    await refreshTerminRequestBadge();
+  } catch (err) {
+    list.innerHTML = `<div style="color:var(--accent);padding:20px">Fehler: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderTerminRequestList() {
+  const list  = document.getElementById('trqList');
+  const items = trqTab === 'incoming' ? trqLastData.incoming : trqLastData.outgoing;
+
+  if (!items.length) {
+    const msg = trqTab === 'incoming'
+      ? 'Keine Termin-Anfragen an dich.'
+      : 'Du hast noch keine Anfragen gesendet.';
+    list.innerHTML = `<div style="text-align:center;padding:30px 16px;color:var(--text-muted)">${msg}</div>`;
+    return;
+  }
+
+  list.innerHTML = items.map(req => renderTerminRequestCard(req, trqTab)).join('');
+}
+
+function renderTerminRequestCard(req, tab) {
+  const dateFmt = formatTrqWhen(req);
+  const statusPill = trqStatusPill(req);
+  const recipients = req.recipients ?? [];
+  const stats = {
+    accepted: recipients.filter(r => r.response === 'accepted').length,
+    declined: recipients.filter(r => r.response === 'declined').length,
+    pending:  recipients.filter(r => r.response === 'pending').length,
+  };
+
+  let subline = '';
+  if (tab === 'incoming') {
+    const c = req.creator;
+    const name = c ? `${c.firstname} ${c.lastname}`.trim() : 'Jemand';
+    // Antwort des aktuellen Nutzers
+    const mine = recipients.find(r => r.user_id === currentUser.id);
+    const myResp = mine?.response ?? 'pending';
+    subline = `<div class="trq-sub">von <strong>${esc(name)}</strong> · ${recipients.length} Empfänger${recipients.length === 1 ? '' : ''}</div>`;
+    if (req.status === 'open') {
+      subline += `<div class="trq-my-resp">Deine Antwort: ${trqRespLabel(myResp)}</div>`;
+    }
+  } else {
+    subline = `<div class="trq-sub">${recipients.length} Empfänger · ✓ ${stats.accepted} · ✕ ${stats.declined} · … ${stats.pending}</div>`;
+  }
+
+  return `
+    <div class="trq-card" onclick="openTerminRequestDetail('${req.id}')">
+      <div class="trq-card-head">
+        <div class="trq-card-title">${esc(req.title)}</div>
+        ${statusPill}
+      </div>
+      <div class="trq-card-when">📅 ${esc(dateFmt)}${req.location ? ' · 📍 ' + esc(req.location) : ''}</div>
+      ${subline}
+    </div>
+  `;
+}
+
+function trqStatusPill(req) {
+  const map = {
+    open:      { label: 'Offen',       cls: 'trq-pill-open' },
+    confirmed: { label: 'Bestätigt',   cls: 'trq-pill-ok'   },
+    cancelled: { label: 'Abgesagt',    cls: 'trq-pill-no'   },
+  };
+  const m = map[req.status] || map.open;
+  return `<span class="trq-pill ${m.cls}">${m.label}</span>`;
+}
+
+function trqRespLabel(r) {
+  if (r === 'accepted') return '<span style="color:var(--success);font-weight:700">✓ Zugesagt</span>';
+  if (r === 'declined') return '<span style="color:var(--accent);font-weight:700">✕ Abgesagt</span>';
+  return '<span style="color:var(--text-muted)">… Ausstehend</span>';
+}
+
+function formatTrqWhen(req) {
+  const d  = new Date(req.date + 'T00:00:00');
+  const fmt = d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+  let s = fmt;
+  if (req.date_end && req.date_end !== req.date) {
+    const d2 = new Date(req.date_end + 'T00:00:00');
+    s += ' – ' + d2.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  }
+  if (req.time) {
+    s += ' · ' + req.time.slice(0, 5);
+    if (req.time_end) s += '–' + req.time_end.slice(0, 5);
+  }
+  return s;
+}
+
+// ── Detail-Modal ────────────────────────────────────────────
+
+window.openTerminRequestDetail = id => {
+  const all = [...trqLastData.incoming, ...trqLastData.outgoing];
+  const req = all.find(r => r.id === id);
+  if (!req) return;
+  renderTerminRequestDetail(req);
+  document.getElementById('trqDetailModal').classList.add('open');
+};
+window.closeTerminRequestDetail = () => {
+  document.getElementById('trqDetailModal').classList.remove('open');
+};
+
+function renderTerminRequestDetail(req) {
+  const isMine = req.created_by === currentUser.id;
+  const mine   = (req.recipients ?? []).find(r => r.user_id === currentUser.id);
+
+  document.getElementById('trqDetailTitle').textContent = req.title;
+
+  const body = document.getElementById('trqDetailBody');
+  const creatorName = req.creator ? `${req.creator.firstname} ${req.creator.lastname}` : '–';
+
+  const recipientsHTML = (req.recipients ?? []).map(r => {
+    const p = r.profile ?? {};
+    const label = `${p.firstname ?? ''} ${p.lastname ?? ''}`.trim() || 'Nutzer';
+    const respHTML = {
+      accepted: '<span class="trq-resp ok">✓ Zugesagt</span>',
+      declined: '<span class="trq-resp no">✕ Abgesagt</span>',
+      pending:  '<span class="trq-resp pending">… Ausstehend</span>',
+    }[r.response] || '';
+    return `
+      <div class="trq-recipient-row">
+        <div class="trq-avatar">${esc(p.avatar ?? '??')}</div>
+        <div style="flex:1;font-size:13px">${esc(label)}</div>
+        ${respHTML}
+      </div>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="trq-meta-grid">
+      <div><span class="trq-meta-k">Status</span>${trqStatusPill(req)}</div>
+      <div><span class="trq-meta-k">Initiator</span>${esc(creatorName)}</div>
+      <div><span class="trq-meta-k">Zeit</span>${esc(formatTrqWhen(req))}</div>
+      ${req.location    ? `<div><span class="trq-meta-k">Ort</span>${esc(req.location)}</div>` : ''}
+      ${req.description ? `<div><span class="trq-meta-k">Beschreibung</span>${esc(req.description)}</div>` : ''}
+      ${req.target_calendar ? `<div><span class="trq-meta-k">Zielkalender</span><span class="trq-cal-chip" style="background:${req.target_calendar.color}22;color:${req.target_calendar.color}">● ${esc(req.target_calendar.name)}</span></div>` : ''}
+    </div>
+    <div class="field">
+      <label>Empfänger (${(req.recipients ?? []).length})</label>
+      <div class="trq-recipients-list">${recipientsHTML}</div>
+    </div>
+    ${isMine && req.status === 'open' ? `
+      <div class="field">
+        <label>Zielkalender für die Bestätigung *</label>
+        <select id="trq-confirm-cal" class="role-name-select" style="padding:9px 12px"></select>
+      </div>
+    ` : ''}
+  `;
+
+  // Aktionen berechnen
+  const actions = document.getElementById('trqDetailActions');
+  let buttons = `<button class="btn-secondary" onclick="closeTerminRequestDetail()">Schließen</button>`;
+
+  if (isMine) {
+    // Als Initiator: Bestätigen, Absagen, Löschen
+    if (req.status === 'open') {
+      buttons += `
+        <button class="btn-danger"  onclick="cancelTerminRequest('${req.id}')">Anfrage verwerfen</button>
+        <button class="btn-primary" onclick="confirmTerminRequest('${req.id}')">✓ Bestätigen & Termin anlegen</button>
+      `;
+    } else {
+      buttons += `<button class="btn-danger" onclick="deleteTerminRequest('${req.id}')">🗑 Löschen</button>`;
+    }
+  } else if (req.status === 'open' && mine) {
+    // Als Empfänger: Zu-/Absage (nur wenn Anfrage noch offen)
+    const myResp = mine.response;
+    buttons += `
+      <button class="btn-danger"  onclick="respondTrq('${req.id}','declined')"${myResp==='declined'?' disabled':''}>✕ Absagen</button>
+      <button class="btn-primary" onclick="respondTrq('${req.id}','accepted')"${myResp==='accepted'?' disabled':''}>✓ Zusagen</button>
+    `;
+  }
+  actions.innerHTML = buttons;
+
+  // Nach Render: Zielkalender-Dropdown (nur für Initiator) befüllen
+  if (isMine && req.status === 'open') {
+    const sel = document.getElementById('trq-confirm-cal');
+    const myCals = (allCalendars && allCalendars.length ? allCalendars : [])
+      .filter(c => !c.readOnly);
+    // Fallback: Kalender neu laden, wenn allCalendars leer ist
+    if (!myCals.length) {
+      DB.getCalendars(currentUser.id).then(cals => {
+        const options = cals
+          .filter(c => c.myStatus === 'accepted' && !c.readOnly)
+          .map(c => `<option value="${c.id}"${c.id === req.target_calendar_id ? ' selected' : ''}>${esc(c.name)}</option>`)
+          .join('');
+        sel.innerHTML = options || '<option value="">(kein eigener Kalender verfügbar)</option>';
+      });
+    } else {
+      sel.innerHTML = myCals
+        .map(c => `<option value="${c.id}"${c.id === req.target_calendar_id ? ' selected' : ''}>${esc(c.name)}</option>`)
+        .join('');
+    }
+  }
+}
+
+window.respondTrq = async (requestId, response) => {
+  try {
+    await DB.respondToTerminRequest(requestId, currentUser.id, response);
+    showToast(response === 'accepted' ? 'Zugesagt.' : 'Abgesagt.');
+    await loadAndRenderTerminRequests();
+    closeTerminRequestDetail();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
+window.confirmTerminRequest = async requestId => {
+  const req = [...trqLastData.incoming, ...trqLastData.outgoing].find(r => r.id === requestId);
+  if (!req) return;
+  const sel = document.getElementById('trq-confirm-cal');
+  const calId = sel?.value || req.target_calendar_id;
+  if (!calId) {
+    showToast('Bitte Zielkalender wählen.', 'error');
+    return;
+  }
+  try {
+    await DB.confirmTerminRequest(req, calId, currentUser.id);
+    showToast('Termin bestätigt und im Kalender eingetragen.');
+    await loadAndRenderTerminRequests();
+    closeTerminRequestDetail();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
+window.cancelTerminRequest = async requestId => {
+  if (!confirm('Anfrage wirklich verwerfen? Die Empfänger sehen den Status dann als "abgesagt".')) return;
+  try {
+    await DB.cancelTerminRequest(requestId);
+    showToast('Anfrage verworfen.');
+    await loadAndRenderTerminRequests();
+    closeTerminRequestDetail();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
+window.deleteTerminRequest = async requestId => {
+  if (!confirm('Anfrage komplett löschen?')) return;
+  try {
+    await DB.deleteTerminRequest(requestId);
+    showToast('Anfrage gelöscht.');
+    await loadAndRenderTerminRequests();
+    closeTerminRequestDetail();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
+// ── Anlegen-Modal ───────────────────────────────────────────
+
+window.openTerminRequestCreateModal = async () => {
+  // Formular zurücksetzen
+  document.getElementById('trq-title').value = '';
+  document.getElementById('trq-date').value  = new Date().toISOString().slice(0,10);
+  document.getElementById('trq-date-end').value = '';
+  document.getElementById('trq-time').value     = '';
+  document.getElementById('trq-time-end').value = '';
+  document.getElementById('trq-location').value = '';
+  document.getElementById('trq-desc').value     = '';
+  document.getElementById('trqUserFilter').value = '';
+  trqCreateSelected = new Set();
+
+  // Zielkalender-Dropdown füllen (eigene, editierbare Kalender)
+  const sel = document.getElementById('trq-target-cal');
+  try {
+    const cals = await DB.getCalendars(currentUser.id);
+    const mine = cals.filter(c => c.myStatus === 'accepted' && !c.readOnly);
+    sel.innerHTML = mine.length
+      ? mine.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')
+      : '<option value="">(kein eigener Kalender)</option>';
+  } catch (_) {
+    sel.innerHTML = '<option value="">(Kalender laden fehlgeschlagen)</option>';
+  }
+
+  // Profile-Liste sicherstellen
+  if (!allProfiles.length) {
+    try { allProfiles = await DB.getProfiles(); } catch (_) {}
+  }
+
+  renderTerminRequestUserPicker();
+  document.getElementById('trqCreateModal').classList.add('open');
+};
+
+window.closeTerminRequestCreateModal = () => {
+  document.getElementById('trqCreateModal').classList.remove('open');
+};
+
+window.renderTerminRequestUserPicker = () => {
+  const filter = (document.getElementById('trqUserFilter').value || '').trim().toLowerCase();
+  const container = document.getElementById('trqUserPicker');
+  const people = (allProfiles || [])
+    .filter(p => p.id !== currentUser.id)
+    .filter(p => {
+      if (!filter) return true;
+      return (`${p.firstname} ${p.lastname}`.toLowerCase().includes(filter));
+    })
+    .sort((a, b) => a.firstname.localeCompare(b.firstname));
+
+  if (!people.length) {
+    container.innerHTML = '<div style="padding:10px;color:var(--text-muted);font-size:13px">Keine Nutzer gefunden.</div>';
+  } else {
+    container.innerHTML = people.map(p => {
+      const on = trqCreateSelected.has(p.id);
+      return `
+        <label class="trq-user-chip ${on ? 'on' : ''}">
+          <input type="checkbox" ${on ? 'checked' : ''} onchange="toggleTrqRecipient('${p.id}', this.checked)"/>
+          <span class="trq-avatar">${esc(p.avatar ?? '??')}</span>
+          <span>${esc(p.firstname)} ${esc(p.lastname)}</span>
+        </label>
+      `;
+    }).join('');
+  }
+  document.getElementById('trqSelCount').textContent = trqCreateSelected.size ? `· ${trqCreateSelected.size} ausgewählt` : '';
+};
+
+window.toggleTrqRecipient = (id, on) => {
+  if (on) trqCreateSelected.add(id); else trqCreateSelected.delete(id);
+  document.getElementById('trqSelCount').textContent = trqCreateSelected.size ? `· ${trqCreateSelected.size} ausgewählt` : '';
+  // Chip-Style aktualisieren
+  renderTerminRequestUserPicker();
+};
+
+window.submitTerminRequest = async () => {
+  const title    = document.getElementById('trq-title').value.trim();
+  const date     = document.getElementById('trq-date').value;
+  const dateEnd  = document.getElementById('trq-date-end').value || null;
+  const time     = document.getElementById('trq-time').value || null;
+  const timeEnd  = document.getElementById('trq-time-end').value || null;
+  const location = document.getElementById('trq-location').value.trim() || null;
+  const desc     = document.getElementById('trq-desc').value.trim() || null;
+  const targetCal= document.getElementById('trq-target-cal').value || null;
+  const recipients = Array.from(trqCreateSelected);
+
+  if (!title)             return showToast('Bitte Titel eingeben.', 'error');
+  if (!date)              return showToast('Bitte Datum wählen.', 'error');
+  if (!recipients.length) return showToast('Bitte mindestens einen Empfänger auswählen.', 'error');
+
+  try {
+    await DB.createTerminRequest(currentUser.id, {
+      title, description: desc, location,
+      date, date_end: dateEnd, time, time_end: timeEnd,
+      target_calendar_id: targetCal,
+    }, recipients);
+    showToast(`Anfrage an ${recipients.length} Nutzer gesendet.`);
+    closeTerminRequestCreateModal();
+    await loadAndRenderTerminRequests();
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+};
+
 // ── App starten ───────────────────────────────────────────────
 DB.onAuthChange(async user => {
   if (user) {
@@ -1967,3 +2377,114 @@ DB.onAuthChange(async user => {
     }
   }
 });
+
+// ── Swipe-Gesten für Kalender-Ansichten ──────────────────────
+// Horizontaler Fingerwisch in Jahres-/Monats-/Wochen-/Tagesansicht:
+//   ← Wisch links  →  nächste Periode
+//   → Wisch rechts →  vorherige Periode
+// Vertikales Scrollen bleibt erhalten.
+(function setupCalendarSwipes() {
+  const SWIPE_MIN_DISTANCE     = 40;
+  const SWIPE_MAX_VERTICAL     = 120;
+  const SWIPE_HORIZONTAL_RATIO = 1.2;
+  const SWIPE_MAX_DURATION_MS  = 1200;
+  const SWIPABLE_VIEWS         = new Set(['year', 'month', 'week', 'day']);
+
+  function applyTouchActionStyles() {
+    ['viewYear', 'viewMonth', 'viewWeek', 'viewDay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.style.touchAction) el.style.touchAction = 'pan-y';
+    });
+  }
+
+  function findSwipeView(target) {
+    if (!target || !target.closest) return null;
+    const vc = target.closest('#viewYear, #viewMonth, #viewWeek, #viewDay');
+    if (!vc) return null;
+    if (target.closest('.modal-backdrop.open, .avatar-dropdown.open')) return null;
+    return vc;
+  }
+
+  function navigateForDelta(dx) {
+    if (dx < 0) {
+      if (typeof window.calNavNext === 'function') window.calNavNext();
+    } else {
+      if (typeof window.calNavPrev === 'function') window.calNavPrev();
+    }
+  }
+
+  function feedback(el, dx) {
+    if (!el) return;
+    try {
+      const prevTransition = el.style.transition;
+      el.style.transition = 'transform 120ms ease-out';
+      el.style.transform  = dx < 0 ? 'translateX(-8px)' : 'translateX(8px)';
+      setTimeout(() => { el.style.transform = ''; }, 130);
+      setTimeout(() => { el.style.transition = prevTransition || ''; }, 290);
+    } catch (_) { /* ignore */ }
+  }
+
+  function evaluateGesture(startX, startY, startT, endX, endY, viewEl) {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dt = Date.now() - startT;
+    if (dt > SWIPE_MAX_DURATION_MS) return false;
+    if (Math.abs(dx) < SWIPE_MIN_DISTANCE) return false;
+    if (Math.abs(dy) > SWIPE_MAX_VERTICAL) return false;
+    if (Math.abs(dx) < Math.abs(dy) * SWIPE_HORIZONTAL_RATIO) return false;
+    if (typeof calView !== 'undefined' && !SWIPABLE_VIEWS.has(calView)) return false;
+    feedback(viewEl, dx);
+    navigateForDelta(dx);
+    return true;
+  }
+
+  if (window.PointerEvent) {
+    let pStartX = 0, pStartY = 0, pStartT = 0, pView = null, pId = null;
+
+    document.addEventListener('pointerdown', e => {
+      if (e.button && e.button !== 0) return;
+      const view = findSwipeView(e.target);
+      if (!view) { pView = null; return; }
+      pStartX = e.clientX;
+      pStartY = e.clientY;
+      pStartT = Date.now();
+      pView   = view;
+      pId     = e.pointerId;
+    }, { passive: true });
+
+    document.addEventListener('pointerup', e => {
+      if (!pView || e.pointerId !== pId) return;
+      const v = pView; pView = null;
+      evaluateGesture(pStartX, pStartY, pStartT, e.clientX, e.clientY, v);
+    }, { passive: true });
+
+    document.addEventListener('pointercancel', () => { pView = null; }, { passive: true });
+  } else {
+    let tStartX = 0, tStartY = 0, tStartT = 0, tView = null;
+
+    document.addEventListener('touchstart', e => {
+      if (!e.touches || e.touches.length !== 1) { tView = null; return; }
+      const view = findSwipeView(e.target);
+      if (!view) { tView = null; return; }
+      const t = e.touches[0];
+      tStartX = t.clientX;
+      tStartY = t.clientY;
+      tStartT = Date.now();
+      tView   = view;
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+      if (!tView) return;
+      const v = tView; tView = null;
+      if (!e.changedTouches || !e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      evaluateGesture(tStartX, tStartY, tStartT, t.clientX, t.clientY, v);
+    }, { passive: true });
+
+    document.addEventListener('touchcancel', () => { tView = null; }, { passive: true });
+  }
+
+  applyTouchActionStyles();
+  document.addEventListener('DOMContentLoaded', applyTouchActionStyles);
+  window.addEventListener('load', applyTouchActionStyles);
+})();

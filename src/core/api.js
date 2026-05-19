@@ -721,3 +721,224 @@ export async function getMyEvents(userId) {
                     ((a.time || '') > (b.time || '') ? 1 : -1))
     .slice(0, 40);
 }
+
+
+// ── TERMIN-ANFRAGEN (zwischen Nutzern) ───────────────────────
+//
+// Datenmodell:
+//   termin_requests             – Vorschlag eines Initiators
+//   termin_request_recipients   – N Empfänger pro Anfrage, je mit Antwort
+//
+// Ablauf:
+//   1. Initiator legt Anfrage mit ≥ 1 Empfängern an.
+//   2. Empfänger antworten einzeln ('accepted' | 'declined').
+//   3. Initiator bestätigt die Anfrage → es entsteht ein echter
+//      Termin in einem seiner Kalender (target_calendar_id).
+//   4. Alternativ: Initiator verwirft die Anfrage (status='cancelled').
+//
+
+/**
+ * Neue Termin-Anfrage anlegen.
+ *
+ * @param {string} userId                 Initiator (= aktueller Nutzer)
+ * @param {object} data                   { title, description, location, date, date_end, time, time_end, color, target_calendar_id }
+ * @param {string[]} recipientUserIds     Profil-IDs der eingeladenen Nutzer (≥ 1, Duplikate werden entfernt)
+ * @returns {object}                      Die angelegte Anfrage inkl. Empfängerliste
+ */
+export async function createTerminRequest(userId, data, recipientUserIds) {
+  const unique = Array.from(new Set((recipientUserIds || []).filter(id => id && id !== userId)));
+  if (unique.length === 0) {
+    throw new Error('Mindestens ein Empfänger erforderlich.');
+  }
+
+  // 1) Anfrage anlegen
+  const { data: req, error: reqErr } = await supabase
+    .from('termin_requests')
+    .insert({
+      created_by:         userId,
+      target_calendar_id: data.target_calendar_id ?? null,
+      title:              data.title,
+      description:        data.description ?? null,
+      location:           data.location ?? null,
+      date:               data.date,
+      date_end:           data.date_end ?? null,
+      time:               data.time ?? null,
+      time_end:           data.time_end ?? null,
+      color:              data.color ?? null,
+      status:             'open',
+    })
+    .select()
+    .single();
+  if (reqErr) throw reqErr;
+
+  // 2) Empfänger anlegen
+  const rows = unique.map(uid => ({ request_id: req.id, user_id: uid }));
+  const { error: recErr } = await supabase.from('termin_request_recipients').insert(rows);
+  if (recErr) {
+    // Rollback-Best-Effort: Anfrage wieder entfernen, damit es keine "leere" Anfrage gibt
+    await supabase.from('termin_requests').delete().eq('id', req.id);
+    throw recErr;
+  }
+
+  return { ...req, recipients: rows.map(r => ({ ...r, response: 'pending' })) };
+}
+
+/**
+ * Alle Termin-Anfragen laden, die mich betreffen:
+ *   – outgoing: Anfragen, die ich als Initiator gestellt habe
+ *   – incoming: Anfragen, bei denen ich Empfänger bin
+ *
+ * Jede Anfrage enthält:
+ *   – creator      (Profil des Initiators)
+ *   – recipients   ({user_id, response, responded_at, profile})
+ *   – target_calendar ({id,name,color})   (falls gesetzt)
+ */
+export async function getMyTerminRequests(userId) {
+  // 1) Outgoing: eigene Anfragen (Initiator = ich)
+  const outRes = await supabase
+    .from('termin_requests')
+    .select(`
+      *,
+      creator:created_by (id, firstname, lastname, avatar),
+      target_calendar:target_calendar_id (id, name, color),
+      recipients:termin_request_recipients (
+        id, user_id, response, responded_at,
+        profile:user_id (id, firstname, lastname, avatar)
+      )
+    `)
+    .eq('created_by', userId)
+    .order('created_at', { ascending: false });
+  if (outRes.error) throw outRes.error;
+
+  // 2) Incoming: Anfragen, bei denen ich Empfänger bin
+  //    (via subquery auf termin_request_recipients.request_id)
+  const meRes = await supabase
+    .from('termin_request_recipients')
+    .select('request_id')
+    .eq('user_id', userId);
+  if (meRes.error) throw meRes.error;
+  const incomingIds = (meRes.data ?? []).map(r => r.request_id);
+
+  let incoming = [];
+  if (incomingIds.length) {
+    const inRes = await supabase
+      .from('termin_requests')
+      .select(`
+        *,
+        creator:created_by (id, firstname, lastname, avatar),
+        target_calendar:target_calendar_id (id, name, color),
+        recipients:termin_request_recipients (
+          id, user_id, response, responded_at,
+          profile:user_id (id, firstname, lastname, avatar)
+        )
+      `)
+      .in('id', incomingIds)
+      .order('created_at', { ascending: false });
+    if (inRes.error) throw inRes.error;
+    incoming = inRes.data ?? [];
+  }
+
+  return {
+    incoming,
+    outgoing: outRes.data ?? [],
+  };
+}
+
+/**
+ * Auf eine Termin-Anfrage antworten (Zu- oder Absage).
+ * Darf nur der Empfänger selbst aufrufen.
+ */
+export async function respondToTerminRequest(requestId, userId, response) {
+  if (!['accepted', 'declined'].includes(response)) {
+    throw new Error('Ungültige Antwort.');
+  }
+  const { data, error } = await supabase
+    .from('termin_request_recipients')
+    .update({ response, responded_at: new Date().toISOString() })
+    .eq('request_id', requestId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Anfrage durch den Initiator bestätigen.
+ * – erzeugt einen echten Termin im Zielkalender
+ * – setzt Anfrage-Status auf 'confirmed' + confirmed_event_id
+ *
+ * @param {object} req                 die komplette Anfrage (aus getMyTerminRequests)
+ * @param {string} targetCalendarId    Zielkalender (falls nicht bereits in req.target_calendar_id)
+ * @param {string} userId              Initiator (= aktueller Nutzer)
+ * @returns {object}                   { request, event }
+ */
+export async function confirmTerminRequest(req, targetCalendarId, userId) {
+  const calId = targetCalendarId || req.target_calendar_id;
+  if (!calId) throw new Error('Kein Zielkalender angewählt.');
+
+  // 1) Echten Termin anlegen
+  const { data: ev, error: evErr } = await supabase
+    .from('events')
+    .insert({
+      calendar_id: calId,
+      created_by:  userId,
+      title:       req.title,
+      description: req.description,
+      location:    req.location,
+      date:        req.date,
+      date_end:    req.date_end,
+      time:        req.time,
+      time_end:    req.time_end,
+      color:       req.color,
+    })
+    .select()
+    .single();
+  if (evErr) throw evErr;
+
+  // 2) Anfrage auf 'confirmed' setzen und mit Event verknüpfen
+  const { data: updated, error: upErr } = await supabase
+    .from('termin_requests')
+    .update({
+      status:             'confirmed',
+      confirmed_event_id: ev.id,
+      confirmed_at:       new Date().toISOString(),
+      target_calendar_id: calId,
+    })
+    .eq('id', req.id)
+    .select()
+    .single();
+  if (upErr) throw upErr;
+
+  return { request: updated, event: ev };
+}
+
+/** Anfrage durch den Initiator verwerfen (Status 'cancelled'). */
+export async function cancelTerminRequest(requestId) {
+  const { error } = await supabase
+    .from('termin_requests')
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+    .eq('id', requestId);
+  if (error) throw error;
+}
+
+/** Anfrage komplett löschen (nur Initiator). */
+export async function deleteTerminRequest(requestId) {
+  const { error } = await supabase
+    .from('termin_requests')
+    .delete()
+    .eq('id', requestId);
+  if (error) throw error;
+}
+
+/** Nur die Anzahl eingehender, offener Anfragen (für Badge am Button). */
+export async function countPendingTerminRequests(userId) {
+  const { count, error } = await supabase
+    .from('termin_request_recipients')
+    .select('request_id, termin_requests!inner(status)', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('response', 'pending')
+    .eq('termin_requests.status', 'open');
+  if (error) return 0;
+  return count ?? 0;
+}

@@ -2066,6 +2066,138 @@ window.cancelPendingInvite = async (invId) => {
   }
 };
 
+// ── Swipe-Gesten für Kalender-Ansichten ──────────────────────
+// Auf Touch-Geräten (Handy/Tablet) kann man in den Ansichten
+// Jahr / Monat / Woche / Tag mit horizontalem Fingerwisch zwischen
+// den Perioden blättern.
+//
+//   Wisch nach LINKS  →  nächste Periode (calNavNext)
+//   Wisch nach RECHTS →  vorherige Periode (calNavPrev)
+//
+// Implementierung:
+//   • Delegation auf document-Ebene → unabhängig davon, wann die
+//     View-Container im DOM eingehängt sind und ob sie neu gerendert werden.
+//   • Sowohl Pointer Events (modern, deckt Touch+Maus ab) als auch
+//     klassische Touch Events – iOS Safari kann bei Pointer Events zicken.
+//   • touch-action:pan-y CSS auf den Containern verhindert, dass der
+//     Browser die horizontale Geste selber abfängt (z. B. „Zurück"-Geste).
+//   • Vertikales Scrollen bleibt erhalten, da nur eindeutig horizontale
+//     Gesten ausgewertet werden.
+(function setupCalendarSwipes() {
+  const SWIPE_MIN_DISTANCE     = 50;
+  const SWIPE_MAX_VERTICAL     = 100;
+  const SWIPE_HORIZONTAL_RATIO = 1.3;
+  const SWIPE_MAX_DURATION_MS  = 900;
+  const SWIPABLE_VIEWS         = new Set(['year', 'month', 'week', 'day']);
+
+  // 1) CSS-Hint setzen, damit Touch-Browser horizontale Bewegung uns überlassen
+  function applyTouchActionStyles() {
+    ['viewYear', 'viewMonth', 'viewWeek', 'viewDay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.style.touchAction) el.style.touchAction = 'pan-y';
+    });
+  }
+
+  // 2) Hilfsfunktion: gehört das Ziel zu einem swipebaren View-Container?
+  function findSwipeView(target) {
+    if (!target || !target.closest) return null;
+    const vc = target.closest('#viewYear, #viewMonth, #viewWeek, #viewDay');
+    if (!vc) return null;
+    // Modals / Dropdowns ausschließen, die zufällig drüber liegen
+    if (target.closest('.modal-backdrop.open, .avatar-dropdown.open')) return null;
+    return vc;
+  }
+
+  function navigateForDelta(dx) {
+    if (dx < 0) {
+      if (typeof window.calNavNext === 'function') window.calNavNext();
+    } else {
+      if (typeof window.calNavPrev === 'function') window.calNavPrev();
+    }
+  }
+
+  function feedback(el, dx) {
+    if (!el) return;
+    try {
+      const prevTransition = el.style.transition;
+      el.style.transition = 'transform 120ms ease-out';
+      el.style.transform  = dx < 0 ? 'translateX(-8px)' : 'translateX(8px)';
+      setTimeout(() => { el.style.transform = ''; }, 130);
+      setTimeout(() => { el.style.transition = prevTransition || ''; }, 290);
+    } catch (_) { /* ignore */ }
+  }
+
+  function evaluateGesture(startX, startY, startT, endX, endY, viewEl) {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dt = Date.now() - startT;
+    if (dt > SWIPE_MAX_DURATION_MS) return false;
+    if (Math.abs(dx) < SWIPE_MIN_DISTANCE) return false;
+    if (Math.abs(dy) > SWIPE_MAX_VERTICAL) return false;
+    if (Math.abs(dx) < Math.abs(dy) * SWIPE_HORIZONTAL_RATIO) return false;
+    // Nur in den swipebaren Ansichten reagieren
+    if (typeof calView !== 'undefined' && !SWIPABLE_VIEWS.has(calView)) return false;
+    feedback(viewEl, dx);
+    navigateForDelta(dx);
+    return true;
+  }
+
+  // Eines von beiden – nicht beide gleichzeitig, sonst doppelte Navigation.
+  if (window.PointerEvent) {
+    // ── Pointer Events (modern, deckt Touch und Maus ab) ───────
+    let pStartX = 0, pStartY = 0, pStartT = 0, pView = null, pId = null;
+
+    document.addEventListener('pointerdown', e => {
+      if (e.button && e.button !== 0) return;          // nur primärer Pointer
+      const view = findSwipeView(e.target);
+      if (!view) { pView = null; return; }
+      pStartX = e.clientX;
+      pStartY = e.clientY;
+      pStartT = Date.now();
+      pView   = view;
+      pId     = e.pointerId;
+    }, { passive: true });
+
+    document.addEventListener('pointerup', e => {
+      if (!pView || e.pointerId !== pId) return;
+      const v = pView; pView = null;
+      evaluateGesture(pStartX, pStartY, pStartT, e.clientX, e.clientY, v);
+    }, { passive: true });
+
+    document.addEventListener('pointercancel', () => { pView = null; }, { passive: true });
+  } else {
+    // ── Klassische Touch Events (alte Browser ohne PointerEvent) ──
+    let tStartX = 0, tStartY = 0, tStartT = 0, tView = null;
+
+    document.addEventListener('touchstart', e => {
+      if (!e.touches || e.touches.length !== 1) { tView = null; return; }
+      const view = findSwipeView(e.target);
+      if (!view) { tView = null; return; }
+      const t = e.touches[0];
+      tStartX = t.clientX;
+      tStartY = t.clientY;
+      tStartT = Date.now();
+      tView   = view;
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+      if (!tView) return;
+      const v = tView; tView = null;
+      if (!e.changedTouches || !e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      evaluateGesture(tStartX, tStartY, tStartT, t.clientX, t.clientY, v);
+    }, { passive: true });
+
+    document.addEventListener('touchcancel', () => { tView = null; }, { passive: true });
+  }
+
+  // CSS-Hint: sobald die Container existieren (gleich oder nach Login)
+  applyTouchActionStyles();
+  // Sicherheitshalber nach Login (Bildschirm wird erst dann sichtbar) nochmal
+  document.addEventListener('DOMContentLoaded', applyTouchActionStyles);
+  window.addEventListener('load', applyTouchActionStyles);
+})();
+
 /** Offene E-Mail-Einladungen für einen Kalender laden und anzeigen */
 async function loadPendingInvites(calendarId) {
   try {

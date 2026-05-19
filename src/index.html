@@ -53,6 +53,10 @@
   <nav class="navbar">
     <div class="navbar-left"><div class="navbar-logo">📅</div><span class="navbar-title">Team-Kalender</span></div>
     <div class="navbar-right" style="position:relative">
+      <button class="nav-icon-btn trq-nav-btn" onclick="openTerminRequestsModal()" title="Termin-Anfragen">
+        <span>📨</span>
+        <span class="trq-badge" id="trqBadge" style="display:none">0</span>
+      </button>
       <button class="nav-icon-btn" onclick="appReload()" title="Aktualisieren">🔄</button>
       <button class="avatar-btn" id="avatarBtn" onclick="toggleDropdown()"><span id="navAvatar"></span></button>
       <div class="avatar-dropdown" id="avatarDropdown">
@@ -268,6 +272,73 @@
       <div style="flex:1"></div>
       <button class="btn-secondary" onclick="closeIcsDialog()">Schließen</button>
     </div>
+  </div>
+</div>
+
+<!-- ─────────────── Termin-Anfragen ─────────────── -->
+<div class="modal-backdrop" id="trqInboxModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <span class="modal-title">📨 Termin-Anfragen</span>
+      <button class="modal-close" onclick="closeTerminRequestsModal()">✕</button>
+    </div>
+    <div class="modal-form">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="trq-tabs">
+          <button class="trq-tab active" id="trqTabIn"  onclick="setTerminRequestTab('incoming')">Eingehend <span id="trqCountIn"  class="trq-tab-count"></span></button>
+          <button class="trq-tab"        id="trqTabOut" onclick="setTerminRequestTab('outgoing')">Ausgehend <span id="trqCountOut" class="trq-tab-count"></span></button>
+        </div>
+        <button class="btn-primary" style="padding:8px 14px;font-size:13px" onclick="openTerminRequestCreateModal()">＋ Neue Anfrage</button>
+      </div>
+      <div id="trqList" style="display:flex;flex-direction:column;gap:10px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="trqCreateModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Neue Termin-Anfrage</span>
+      <button class="modal-close" onclick="closeTerminRequestCreateModal()">✕</button>
+    </div>
+    <div class="modal-form">
+      <div class="field"><label>Titel *</label><input type="text" id="trq-title" placeholder="z.B. Projektbesprechung"/></div>
+      <div class="field-row">
+        <div class="field"><label>Datum *</label><input type="date" id="trq-date"/></div>
+        <div class="field"><label>Datum Bis</label><input type="date" id="trq-date-end"/></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Uhrzeit</label><input type="time" id="trq-time"/></div>
+        <div class="field"><label>Bis</label><input type="time" id="trq-time-end"/></div>
+      </div>
+      <div class="field"><label>Ort</label><input type="text" id="trq-location" placeholder="z.B. Besprechungsraum 1"/></div>
+      <div class="field"><label>Beschreibung</label><textarea id="trq-desc" rows="2" style="padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit;resize:none;outline:none"></textarea></div>
+      <div class="field">
+        <label>Zielkalender (bei Bestätigung)</label>
+        <select id="trq-target-cal" class="role-name-select" style="padding:9px 12px"></select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Der Termin wird erst in diesem Kalender erstellt, wenn du die Anfrage bestätigst.</div>
+      </div>
+      <div class="field">
+        <label>Empfänger * <span id="trqSelCount" style="font-weight:400;color:var(--text-muted)"></span></label>
+        <input type="text" id="trqUserFilter" placeholder="🔎 Name suchen…" oninput="renderTerminRequestUserPicker()" style="margin-bottom:8px"/>
+        <div id="trqUserPicker" class="trq-user-picker"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeTerminRequestCreateModal()">Abbrechen</button>
+      <button class="btn-primary" onclick="submitTerminRequest()">Anfrage senden →</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="trqDetailModal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <span class="modal-title" id="trqDetailTitle">Anfrage</span>
+      <button class="modal-close" onclick="closeTerminRequestDetail()">✕</button>
+    </div>
+    <div class="modal-form" id="trqDetailBody"></div>
+    <div class="modal-actions" id="trqDetailActions"></div>
   </div>
 </div>
 
